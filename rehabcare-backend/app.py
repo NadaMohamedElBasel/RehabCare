@@ -4,7 +4,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from datetime import datetime
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -520,5 +519,93 @@ def updateBilling(billingId):
         if conn:
             conn.close()
 
+def initialize_database():
+    conn = None
+    cursor = None
+    try:
+        conn = getDbConnection()
+        cursor = conn.cursor()
+        # Create patients table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS patients (
+            patient_id SERIAL PRIMARY KEY,
+            first_name VARCHAR(100),
+            last_name VARCHAR(100),
+            email VARCHAR(255) UNIQUE NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            date_of_birth DATE,
+            phone_number VARCHAR(20),
+            gender VARCHAR(20)
+        );
+        """)
+        # Create appointments table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS appointments (
+            appointment_id SERIAL PRIMARY KEY,
+            patient_id INTEGER REFERENCES patients(patient_id),
+            appointment_date DATE,
+            purpose TEXT,
+            doctor_id INTEGER,
+            notes TEXT,
+            status VARCHAR(50)
+        );
+        """)
+        # Create medical_records table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS medical_records (
+            record_id SERIAL PRIMARY KEY,
+            patient_id INTEGER REFERENCES patients(patient_id),
+            record_type VARCHAR(100),
+            record_data TEXT,
+            created_by VARCHAR(100),
+            visit_date DATE,
+            created_at DATE DEFAULT CURRENT_DATE,
+            department VARCHAR(100)
+        );
+        """)
+        # Create prescriptions table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prescriptions (
+            prescription_id SERIAL PRIMARY KEY,
+            patient_id INTEGER REFERENCES patients(patient_id),
+            medication_name VARCHAR(255),
+            dosage VARCHAR(100),
+            instructions TEXT,
+            issued_date DATE DEFAULT CURRENT_DATE,
+            frequency VARCHAR(100),
+            duration VARCHAR(100),
+            status VARCHAR(50),
+            type VARCHAR(50)
+        );
+        """)
+        # Create billing table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS billing (
+            billing_id SERIAL PRIMARY KEY,
+            patient_id INTEGER REFERENCES patients(patient_id),
+            amount NUMERIC(10,2),
+            due_date DATE,
+            status VARCHAR(50),
+            created_at DATE DEFAULT CURRENT_DATE,
+            appointment_id INTEGER,
+            icd10_code VARCHAR(20),
+            insurance_company VARCHAR(100),
+            payment_method VARCHAR(50)
+        );
+        """)
+        conn.commit()
+    except Exception as e:
+        print(f"Database initialization failed: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/api/prescriptions/<int:patientId>', methods=['GET'])
+def getPrescriptionsRoute(patientId):
+    return getPrescriptions(patientId)
+
 if __name__ == '__main__':
+    initialize_database()
     app.run(debug=True)
