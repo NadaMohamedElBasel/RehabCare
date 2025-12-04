@@ -185,7 +185,11 @@
   background: #f8d7da;
   color: #721c24;
 }
-
+.status-badge.insurance_submitted {
+  background: #cfe2ff; /* light blue */
+  color: #084298;
+  border: 1px solid #bcdffb;
+}
 .bill-details {
   display: flex;
   flex-direction: column;

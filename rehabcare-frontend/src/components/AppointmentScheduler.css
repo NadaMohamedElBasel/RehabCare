@@ -1,4 +1,4 @@
-/* src/components/AppointmentScheduler.css */
+/* src/components/AppointmentScheduler.css
 .appointments-container {
   max-width: 600px;
   margin: 2rem auto;
@@ -16,4 +16,243 @@
 .appointment-item {
   padding: 0.5rem;
   border-bottom: 1px solid #ddd;
+} */
+ .appointment-scheduler-container {
+  padding: 20px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.schedule-form-section {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 30px;
+}
+
+.schedule-form-section h3 {
+  margin-top: 0;
+  color: #2c3e50;
+}
+
+.appointment-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+.appointment-form .form-group:nth-child(3),
+.appointment-form .form-group:nth-child(5) {
+  grid-column: 1 / -1;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: #2c3e50;
+}
+
+.form-group input,
+.form-group textarea {
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+.form-group textarea {
+  resize: vertical;
+}
+
+.btn-primary {
+  grid-column: 1 / -1;
+  padding: 12px 20px;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 0.3s;
+}
+
+.btn-primary:hover {
+  background: #218838;
+}
+
+.appointments-section {
+  margin-bottom: 30px;
+}
+
+.appointments-section h3 {
+  color: #2c3e50;
+  border-bottom: 2px solid #007bff;
+  padding-bottom: 10px;
+}
+
+.appointments-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 15px;
+}
+
+.appointment-card {
+  background: white;
+  border-radius: 8px;
+  padding: 15px;
+  border-left: 4px solid;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.appointment-card.upcoming {
+  border-left-color: #007bff;
+}
+
+.appointment-card.past {
+  border-left-color: #6c757d;
+  opacity: 0.9;
+}
+
+.appointment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.appointment-header h4 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.status-badge.scheduled {
+  background: #cfe2ff;
+  color: #084298;
+}
+
+.status-badge.completed {
+  background: #d1e7dd;
+  color: #0a3622;
+}
+.status-badge.cancelled {
+  background: #f8d7da;    /* light red background */
+  color: #721c24;         /* dark red text */
+  border: 1px solid #f5c2c7;
+}
+.appointment-details {
+  margin-bottom: 12px;
+  font-size: 0.95em;
+}
+
+.appointment-details p {
+  margin: 8px 0;
+  color: #555;
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.btn-edit,
+.btn-delete,
+.btn-save,
+.btn-cancel-edit {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9em;
+  transition: background-color 0.3s;
+}
+
+.btn-edit {
+  background: #007bff;
+  color: white;
+}
+
+.btn-edit:hover {
+  background: #0056b3;
+}
+
+.btn-delete {
+  background: #dc3545;
+  color: white;
+}
+
+.btn-delete:hover {
+  background: #c82333;
+}
+
+.btn-save {
+  background: #28a745;
+  color: white;
+  grid-column: 1 / -1;
+}
+
+.btn-save:hover {
+  background: #218838;
+}
+
+.btn-cancel-edit {
+  background: #6c757d;
+  color: white;
+  grid-column: 1 / -1;
+}
+
+.btn-cancel-edit:hover {
+  background: #5a6268;
+}
+
+.edit-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.edit-form .form-group:nth-child(3),
+.edit-form .form-group:nth-child(5) {
+  grid-column: 1 / -1;
+}
+
+.error-message {
+  color: #dc3545;
+  padding: 12px;
+  margin: 15px 0;
+  background: #f8d7da;
+  border-radius: 4px;
+  border-left: 4px solid #dc3545;
+}
+
+.success-message {
+  color: #155724;
+  padding: 12px;
+  margin: 15px 0;
+  background: #d4edda;
+  border-radius: 4px;
+  border-left: 4px solid #28a745;
+}
+
+.no-appointments {
+  text-align: center;
+  color: #6c757d;
+  padding: 20px;
+  font-style: italic;
 }

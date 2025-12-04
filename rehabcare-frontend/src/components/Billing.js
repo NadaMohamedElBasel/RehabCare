@@ -69,6 +69,7 @@ function Billing() {
       case 'paid': return 'status-badge paid';
       case 'pending': return 'status-badge pending';
       case 'overdue': return 'status-badge overdue';
+      case 'insurance_submitted': return 'status-badge insurance_submitted';
       default: return 'status-badge';
     }
   };

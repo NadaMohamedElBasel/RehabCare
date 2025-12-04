@@ -466,6 +466,7 @@ function PatientProfile() {
         );
       case 'appointments':
         return <AppointmentScheduler />;
+        return <AppointmentScheduler patientId={patientId || localStorage.getItem('patientId')} />;
       case 'records':
         return <MedicalRecords />;
         return <MedicalRecords patientId={patientId || localStorage.getItem('patientId')} />;
