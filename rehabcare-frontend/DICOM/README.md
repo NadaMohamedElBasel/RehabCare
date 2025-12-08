@@ -1,7 +1,5 @@
 # DICOM Viewer
 
-![](screens/screen-dark.png)
-
 A modern web-based DICOM viewer built with React, TypeScript, and Cornerstone.js. This application provides a user-friendly interface for viewing and analyzing DICOM medical images with various measurement and annotation tools.
 
 ## Features
