@@ -22,14 +22,13 @@ A modern web-based DICOM viewer built with React, TypeScript, and Cornerstone.js
 ### Prerequisites
 
 - Node.js (v14 or higher)
-- npm or yarn
+- npm
 
 ### Installation
 
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/dicom-viewer.git
 cd dicom-viewer
 ```
 
@@ -77,25 +76,11 @@ dicom-viewer/
 
 - React
 - TypeScript
-- Cornerstone.js
+- Cornerstone.js  For 3D Medical Imaging handling Dicom Files
 - Tailwind CSS
 - Web Workers
 - IndexedDB
 - HTML5 Canvas
-
-## Screenshots
-
-### Dark Mode
-
-![Dark Mode Interface](screens/screen-dark.png)
-
-### Floating Tools in Fullscreen Mode
-
-![Floating Tools](screens/screen-float.png)
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
