@@ -1,0 +1,47 @@
+/* src/layouts/AdminLayout.css */
+
+.admin-layout {
+  display: flex;
+  min-height: 100vh;
+  background: #f5f6fa;
+}
+
+.admin-sidebar {
+  width: 250px;
+  background: #1e2a38;
+  color: white;
+  padding: 20px;
+}
+
+.sidebar-title {
+  margin-bottom: 20px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.sidebar-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sidebar-menu a {
+  color: #e5e5e5;
+  text-decoration: none;
+  background: #2c3e50;
+  padding: 10px;
+  border-radius: 5px;
+  transition: 0.2s;
+}
+
+.sidebar-menu a:hover {
+  background: #3b4f63;
+}
+
+.admin-content {
+  flex: 1;
+  padding: 25px;
+  background: #ffffff;
+  border-left: 1px solid #ddd;
+}

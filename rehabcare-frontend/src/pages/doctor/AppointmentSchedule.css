@@ -1,0 +1,23 @@
+/* src/pages/doctor/AppointmentSchedule.js */
+.doctor-appointments-container {
+  padding: 20px;
+}
+
+.appointment-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.appointment-card {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.error-message {
+  color: red;
+  margin-bottom: 10px;
+}

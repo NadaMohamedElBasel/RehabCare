@@ -1,0 +1,36 @@
+/* src/pages/doctor/PatientDetails.css */
+.doctor-patient-container {
+  padding: 20px;
+}
+
+.patient-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.patient-tabs button {
+  padding: 10px 20px;
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.patient-tabs button.active {
+  background: white;
+  border-bottom: 2px solid #007bff;
+  color: #007bff;
+  font-weight: bold;
+}
+
+.patient-details-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.error-message {
+  color: red;
+}

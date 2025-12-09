@@ -1,0 +1,65 @@
+/* ========== Radiology Annotation Viewer ========== */
+
+.annotations-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.annotation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.annotation-header h2 {
+  color: #2c3e50;
+  margin: 0;
+}
+
+.annotation-toolbar {
+  display: flex;
+  gap: 10px;
+}
+
+.toolbar-button {
+  padding: 8px 14px;
+  border: 1px solid #007bff;
+  background: #ffffff;
+  color: #007bff;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.toolbar-button:hover {
+  background: #007bff;
+  color: #ffffff;
+}
+
+.image-viewer {
+  width: 100%;
+  height: 600px;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.annotation-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.annotation-list {
+  margin-top: 20px;
+}
+
+.annotation-item {
+  background: #f8f9fa;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  border-left: 4px solid #007bff;
+}
