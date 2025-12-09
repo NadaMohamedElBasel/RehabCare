@@ -286,10 +286,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import AppointmentScheduler from './AppointmentScheduler';
-import MedicalRecords from './MedicalRecords';
-import Prescriptions from './Prescriptions';
-import Billing from './Billing';
+import AppointmentScheduler from './AppointmentScheduler.js';
+import MedicalRecords from './MedicalRecords.js';
+import Prescriptions from './Prescriptions.js';
+import Billing from './Billing.js';
 import './PatientProfile.css';
 
 

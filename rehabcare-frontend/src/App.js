@@ -1,58 +1,21 @@
 import logo from './logo.svg';
 import React from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-import PatientRegistration from './components/PatientRegistration';
-import PatientProfile from './components/PatientProfile';
-import AppointmentScheduler from './components/AppointmentScheduler';
-import MedicalRecords from './components/MedicalRecords';
-import Prescriptions from './components/Prescriptions';
-import Billing from './components/Billing';
+
+// CRITICAL FIX: Added .js extension to all local component imports
+import PatientRegistration from './components/PatientRegistration.js';
+import PatientProfile from './components/PatientProfile.js';
+import AppointmentScheduler from './components/AppointmentScheduler.js';
+import StaffAppointmentManager from './components/StaffAppointmentManager.js';
+import MedicalRecords from './components/MedicalRecords.js';
+import Prescriptions from './components/Prescriptions.js';
+import AdminBillingManager from './components/AdminBillingManager.js';
+import Billing from './components/Billing.js';
 import './App.css';
 //import Navbar from './components/Navbar';
-import LandingPage from './components/LandingPage';
-import Login from './components/Login';
+import LandingPage from './components/LandingPage.js';
+import Login from './components/Login.js';
 
-
-// function App() {
-//   return (
-//     <div className="App">
-//       <header className="App-header">
-//         <img src={logo} className="App-logo" alt="logo" />
-//         <p>
-//           Edit <code>src/App.js</code> and save to reload.
-//         </p>
-//         <a
-//           className="App-link"
-//           href="https://reactjs.org"
-//           target="_blank"
-//           rel="noopener noreferrer"
-//         >
-//           Learn React
-//         </a>
-//       </header>
-//     </div>
-//   );
-// }
-
-// export default App;
-
-// function App() {
-//   return (
-//     <Router>
-//       <div className="app">
-//         <h1>RehabCare Patient Portal</h1>
-//         <Routes>
-//           <Route path="/register" element={<PatientRegistration />} />
-//           <Route path="/profile/:patientId" element={<PatientProfile />} />
-//           <Route path="/appointments/:patientId" element={<AppointmentScheduler />} />
-//           <Route path="/records/:patientId" element={<MedicalRecords />} />
-//           <Route path="/prescriptions/:patientId" element={<Prescriptions />} />
-//           <Route path="/billing/:patientId" element={<Billing />} />
-//         </Routes>
-//       </div>
-//     </Router>
-//   );
-// }
 
 function App() {
   return (
@@ -68,6 +31,8 @@ function App() {
           <Route path="/records/:patientId" element={<MedicalRecords />} />
           <Route path="/prescriptions/:patientId" element={<Prescriptions />} />
           <Route path="/billing/:patientId" element={<Billing />} />
+          <Route path="/staff/appointments" element={<StaffAppointmentManager />} />
+          <Route path="/admin/billing" element={<AdminBillingManager />}/>
         </Routes>
       </div>
     </Router>

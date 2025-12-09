@@ -17,3 +17,42 @@
   padding: 0.5rem;
   border-bottom: 1px solid #ddd;
 }
+
+.time-slot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+    margin-bottom: 20px;
+}
+
+.slot-button {
+    padding: 10px 5px;
+    border: 1px solid #007bff; /* Changed to primary blue border */
+    border-radius: 4px;
+    background-color: #f0f0f0;
+    color: #007bff; /* Changed text color to blue */
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+    font-size: 0.9em;
+}
+
+.slot-button:hover {
+    background-color: #e0e0e0;
+}
+
+.slot-button.selected {
+    background-color: #007bff; /* Keeps the fill blue when selected */
+    color: white;
+    border-color: #0056b3;
+    font-weight: bold;
+}
+
+.selection-display {
+    padding: 10px;
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
