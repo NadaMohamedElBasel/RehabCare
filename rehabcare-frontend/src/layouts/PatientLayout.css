@@ -1,0 +1,48 @@
+/* src/layouts/PatientLayout.css */
+
+.patient-layout {
+  display: flex;
+  min-height: 100vh;
+  background: #f5f6fa;
+}
+
+/* Sidebar */
+.patient-sidebar {
+  width: 230px;
+  background: #1f3c63;
+  color: white;
+  padding: 20px;
+}
+
+.sidebar-title {
+  text-align: center;
+  margin-bottom: 20px;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.sidebar-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sidebar-menu a {
+  text-decoration: none;
+  background: #294b7a;
+  padding: 10px;
+  color: white;
+  border-radius: 6px;
+  transition: 0.2s;
+}
+
+.sidebar-menu a:hover {
+  background: #3a67a3;
+}
+
+/* Content Area */
+.patient-content {
+  flex: 1;
+  padding: 25px;
+  background: white;
+}

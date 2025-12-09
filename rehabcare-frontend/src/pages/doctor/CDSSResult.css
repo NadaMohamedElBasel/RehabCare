@@ -1,0 +1,68 @@
+.cdss-container {
+  padding: 20px;
+  max-width: 1000px;
+  margin: auto;
+}
+
+.cdss-card {
+  background: #ffffff;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.cdss-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.cdss-header h3 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+.cdss-score {
+  font-weight: bold;
+  color: #007bff;
+  font-size: 1.2em;
+}
+
+.cdss-result-section {
+  margin-top: 15px;
+}
+
+.cdss-result-section h4 {
+  margin: 0 0 5px 0;
+  color: #444;
+}
+
+.cdss-result-section p {
+  margin: 6px 0;
+  color: #555;
+}
+
+.risk-badge {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: bold;
+}
+
+.risk-high {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.risk-medium {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.risk-low {
+  background: #d4edda;
+  color: #155724;
+}

@@ -1,0 +1,115 @@
+/* src/components/PatientProfile.css */
+.profile-container {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 1rem;
+  background: #f9f9f9;
+  border-radius: 8px;
+}
+
+.dashboard-container {
+  padding: 20px;
+}
+
+.dashboard-nav {
+  margin-bottom: 20px;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 10px;
+}
+
+.tabs button {
+  padding: 10px 20px;
+  border: 1px solid #ddd;
+  background: #f5f5f5;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: 0.3s;
+}
+
+.tabs button:hover {
+  background: #e9ecef;
+  border-color: #007bff;
+}
+
+.tabs button.active {
+  border-bottom: 2px solid #007bff;
+  color: #007bff;
+  background: #fff;
+  font-weight: bold;
+}
+
+.dashboard-content {
+  padding: 20px;
+  background: #fff;
+  border-radius: 6px;
+}
+
+.profile-section {
+  margin-bottom: 20px;
+}
+
+.info-group p {
+  margin: 8px 0;
+}
+
+.edit-button {
+  margin-top: 10px;
+  background: #007bff;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+}
+
+.edit-form {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  font-weight: bold;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.button-group button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+}
+
+.button-group button[type="submit"] {
+  background: #28a745;
+  color: white;
+}
+
+.button-group button[type="button"] {
+  background: #dc3545;
+  color: white;
+}

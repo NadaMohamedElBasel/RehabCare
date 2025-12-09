@@ -1,0 +1,24 @@
+.doctor-navbar {
+  width: 100%;
+  padding: 15px 25px;
+  background: #1a242e;
+  display: flex;
+  justify-content: space-between;
+  color: white;
+}
+
+.doctor-navbar .logo {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.doctor-nav-links a {
+  color: white;
+  margin-left: 20px;
+  text-decoration: none;
+  transition: 0.2s;
+}
+
+.doctor-nav-links a:hover {
+  color: #74b9ff;
+}
