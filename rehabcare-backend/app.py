@@ -15,7 +15,7 @@ CORS(app)
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "", # change to yours 
+    "password": "JetFreeeBrain$_ENG:Nada", # change to yours 
     "host": "localhost",
     "port": "5432"
 }
@@ -235,23 +235,31 @@ def manageAppointments(patientId=None):
             data = request.get_json()
             patientId = data.get('patientId')
             appointmentDate = data.get('appointmentDate')
+            appointmentTime = data.get('appointmentTime')
             purpose = data.get('purpose')
             doctor_id = data.get('doctor_id') or data.get('doctorId')
             notes = data.get('notes')
+            # Convert empty strings to None/NULL
+            doctor_id = doctor_id if doctor_id and str(doctor_id).strip() else None
+            appointmentTime = appointmentTime if appointmentTime and str(appointmentTime).strip() else None
+            notes = notes if notes and str(notes).strip() else None
             cursor.execute(
                 """
-                INSERT INTO appointments (patient_id, appointment_date, purpose, doctor_id, notes, status)
-                VALUES (%s, %s, %s, %s, %s, 'scheduled') RETURNING appointment_id, appointment_date, purpose, doctor_id, notes, status
+                INSERT INTO appointments (patient_id, appointment_date,appointment_time, purpose, doctor_id, notes, status)
+                VALUES (%s, %s, %s, %s, %s,%s, 'scheduled') RETURNING appointment_id, appointment_date,appointment_time, purpose, doctor_id, notes, status
                 """,
-                (patientId, appointmentDate, purpose, doctor_id, notes)
+                (patientId, appointmentDate,appointmentTime, purpose, doctor_id, notes)
             )
             appointment = cursor.fetchone()
             conn.commit()
+            # Convert time object to string
+            if appointment and appointment.get('appointment_time'):
+                appointment['appointment_time'] = str(appointment['appointment_time'])
             return jsonify(appointment), 201
 
         elif request.method == 'GET':
             cursor.execute(
-                "SELECT appointment_id, appointment_date, purpose, status, doctor_id, notes FROM appointments WHERE patient_id = %s",
+                "SELECT appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, status, doctor_id, notes FROM appointments WHERE patient_id = %s ORDER BY appointment_date DESC",
                 (patientId,)
             )
             appointments = cursor.fetchall()
@@ -262,6 +270,104 @@ def manageAppointments(patientId=None):
     finally:
         cursor.close()
         conn.close()
+
+
+@app.route('/api/appointments/<int:appointmentId>', methods=['PUT'])
+def updateAppointment(appointmentId):
+    conn = None
+    cursor = None
+    try:
+        data = request.get_json() or {}
+        appointment_date = data.get('appointmentDate')
+        appointment_time = data.get('appointmentTime')
+        purpose = data.get('purpose')
+        doctor_id = data.get('doctor_id') or data.get('doctorId')
+        notes = data.get('notes')
+        
+        conn = getDbConnection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Build dynamic update
+        fields = []
+        values = []
+        
+        if appointment_date is not None:
+            fields.append('appointment_date = %s')
+            values.append(appointment_date)
+        if appointment_time is not None:
+            fields.append('appointment_time = %s')
+            values.append(appointment_time)
+        if purpose is not None:
+            fields.append('purpose = %s')
+            values.append(purpose)
+        if doctor_id is not None:
+            fields.append('doctor_id = %s')
+            values.append(doctor_id)
+        if notes is not None:
+            fields.append('notes = %s')
+            values.append(notes)
+        
+        if not fields:
+            return jsonify({"error": "No fields to update"}), 400
+        
+        values.append(appointmentId)
+        sql = f"""
+            UPDATE appointments
+            SET {', '.join(fields)}
+            WHERE appointment_id = %s
+            RETURNING appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, doctor_id, notes, status
+        """
+        
+        cursor.execute(sql, tuple(values))
+        result = cursor.fetchone()
+        conn.commit()
+        
+        if not result:
+            return jsonify({"error": "Appointment not found"}), 404
+        
+        return jsonify(result), 200
+    
+    except Exception as e:
+        logging.exception("Failed to update appointment")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+# Cancel appointment
+@app.route('/api/appointments/<int:appointmentId>/cancel', methods=['PUT'])
+def cancelAppointment(appointmentId):
+    conn = None
+    cursor = None
+    try:
+        conn = getDbConnection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cursor.execute("""
+            UPDATE appointments
+            SET status = 'cancelled'
+            WHERE appointment_id = %s
+            RETURNING appointment_id, status
+        """, (appointmentId,))
+        
+        result = cursor.fetchone()
+        conn.commit()
+        
+        if not result:
+            return jsonify({"error": "Appointment not found"}), 404
+        
+        return jsonify({"message": "Appointment cancelled successfully", "appointment_id": result['appointment_id']}), 200
+    
+    except Exception as e:
+        logging.exception("Failed to cancel appointment")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 # Medical History Access
 @app.route('/api/medical-records/<int:patientId>', methods=['GET'])
