@@ -17,6 +17,34 @@ const generateTimeSlots = (startHour = 9, endHour = 17) => {
   return slots;
 };
 
+const ICD10_CODES = [
+  // --- MUSCULOSKELETAL & ORTHOPEDIC ---
+  { code: 'M54.5', description: 'Low back pain (Lumbalgia)' },
+  { code: 'M54.2', description: 'Cervicalgia (Neck pain)' },
+  { code: 'M54.41', description: 'Lumbago with sciatica, right side' },
+  { code: 'M25.511', description: 'Pain in right shoulder joint' },
+  { code: 'M25.561', description: 'Pain in right knee' },
+  { code: 'M75.10', description: 'Unspecified rotator cuff tear/rupture, unspecified shoulder' },
+  { code: 'M76.60', description: 'Achilles tendinitis, unspecified leg' },
+  { code: 'S93.409A', description: 'Unspecified sprain of ankle, initial encounter' },
+
+  // --- NEUROLOGICAL ---
+  { code: 'I69.351', description: 'Hemiplegia/hemiparesis following cerebral infarction (Stroke)' },
+  { code: 'G35', description: 'Multiple sclerosis' },
+  { code: 'G20', description: 'Parkinson’s disease' },
+  { code: 'I69.32', description: 'Aphasia (language impairment)' },
+  { code: 'R47.1', description: 'Dysarthria (motor speech disorder)' },
+  { code: 'R13.10', description: 'Dysphagia (difficulty swallowing)' },
+
+  // --- GENERAL MOBILITY & AFTERCARE ---
+  { code: 'M62.81', description: 'Muscle weakness (Generalized debility)' },
+  { code: 'R26.2', description: 'Difficulty in walking, not elsewhere classified (Gait abnormality)' },
+  { code: 'R26.81', description: 'Unsteadiness on feet (Balance issue)' },
+  { code: 'Z47.1', description: 'Aftercare following joint replacement surgery' },
+  { code: 'I25.10', description: 'Chronic ischemic heart disease (for Cardiac Rehab)' },
+  { code: 'J44.9', description: 'Chronic Obstructive Pulmonary Disease (COPD) (for Pulmonary Rehab)' },
+];
+
 // Define the available time slots for the selector (9am to 5pm)
 const AVAILABLE_SLOTS = generateTimeSlots(9, 17);
 
@@ -31,6 +59,14 @@ function AppointmentScheduler() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prevData => ({
+        ...prevData,
+        [name]: value
+    }));
+};
 
   useEffect(() => {
     fetchAppointments();
@@ -294,24 +330,30 @@ const categorizeAppointments = (appts) => {
 
 
           <div className="form-group">
-            <label>Purpose:</label>
-            <input
-              type="text"
-              name="purpose"
-              placeholder="e.g., Physical Therapy, Checkup"
-              value={formData.purpose}
-              onChange={handleInputChange}
-              required
-            />
+            <label htmlFor="purpose">Purpose (ICD-10 Code):</label>
+            <select
+                id="purpose"
+                name="purpose"
+                value={formData.purpose}
+                onChange={handleChange}
+                required
+            >
+              <option value="">-- Select Diagnosis/Reason (ICD-10) --</option>
+              {ICD10_CODES.map(code => (
+                  <option key={code.code} value={code.code}>
+                    {`${code.code} - ${code.description}`}
+                  </option>
+              ))}
+            </select>
           </div>
           <div className="form-group">
             <label>Doctor ID :</label>
             <input
-              type="number"
-              name="doctor"
-              placeholder="Doctor ID"
-              value={formData.doctor}
-              onChange={handleInputChange}
+                type="number"
+                name="doctor"
+                placeholder="Doctor ID"
+                value={formData.doctor}
+                onChange={handleInputChange}
             />
           </div>
           <div className="form-group">

@@ -9,6 +9,34 @@ const BUSINESS_START_HOUR = 9;
 const BUSINESS_END_HOUR = 17;
 const SLOT_DURATION_MINUTES = 60;
 
+const ICD10_CODES = [
+  // --- MUSCULOSKELETAL & ORTHOPEDIC ---
+  { code: 'M54.5', description: 'Low back pain (Lumbalgia)' },
+  { code: 'M54.2', description: 'Cervicalgia (Neck pain)' },
+  { code: 'M54.41', description: 'Lumbago with sciatica, right side' },
+  { code: 'M25.511', description: 'Pain in right shoulder joint' },
+  { code: 'M25.561', description: 'Pain in right knee' },
+  { code: 'M75.10', description: 'Unspecified rotator cuff tear/rupture, unspecified shoulder' },
+  { code: 'M76.60', description: 'Achilles tendinitis, unspecified leg' },
+  { code: 'S93.409A', description: 'Unspecified sprain of ankle, initial encounter' },
+
+  // --- NEUROLOGICAL ---
+  { code: 'I69.351', description: 'Hemiplegia/hemiparesis following cerebral infarction (Stroke)' },
+  { code: 'G35', description: 'Multiple sclerosis' },
+  { code: 'G20', description: 'Parkinson’s disease' },
+  { code: 'I69.32', description: 'Aphasia (language impairment)' },
+  { code: 'R47.1', description: 'Dysarthria (motor speech disorder)' },
+  { code: 'R13.10', description: 'Dysphagia (difficulty swallowing)' },
+
+  // --- GENERAL MOBILITY & AFTERCARE ---
+  { code: 'M62.81', description: 'Muscle weakness (Generalized debility)' },
+  { code: 'R26.2', description: 'Difficulty in walking, not elsewhere classified (Gait abnormality)' },
+  { code: 'R26.81', description: 'Unsteadiness on feet (Balance issue)' },
+  { code: 'Z47.1', description: 'Aftercare following joint replacement surgery' },
+  { code: 'I25.10', description: 'Chronic ischemic heart disease (for Cardiac Rehab)' },
+  { code: 'J44.9', description: 'Chronic Obstructive Pulmonary Disease (COPD) (for Pulmonary Rehab)' },
+];
+
 // Helper function to format time (HH:MM)
 const formatTime = (hour, minute = 0) => {
     return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
@@ -237,16 +265,21 @@ function StaffAppointmentManager() {
                         ))}
                     </div>
 
-                    <label htmlFor="purpose">Purpose:</label>
-                    <input
-                        type="text"
+                    <label htmlFor="purpose">Purpose (ICD-10 Code):</label>
+                    <select
                         id="purpose"
                         name="purpose"
-                        placeholder="Purpose of Visit (Mandatory)"
                         value={newApptData.purpose}
                         onChange={handleNewApptInputChange}
                         required
-                    />
+                    >
+                        <option value="">-- Select Diagnosis/Reason (ICD-10) --</option>
+                        {ICD10_CODES.map(code => (
+                            <option key={code.code} value={code.code}>
+                                {`${code.code} - ${code.description}`}
+                            </option>
+                        ))}
+                    </select>
 
                     <label htmlFor="notes">Notes (Optional):</label>
                     <textarea

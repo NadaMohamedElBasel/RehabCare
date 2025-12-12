@@ -286,3 +286,11 @@
     font-weight: bold;
 }
 
+.slot-button.booked {
+    /* Set to a clear red background for unavailability */
+    background-color: #ffebee; /* Light Red/Pink Background (Same as cancelled bill status) */
+    color: #c62828;             /* Dark Red Text */
+    border-color: #ef9a9a;
+    cursor: not-allowed;
+    opacity: 1; /* Ensure it's fully visible and clearly marked */
+}

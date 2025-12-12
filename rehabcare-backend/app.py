@@ -278,9 +278,40 @@ def manageAppointments(patientId=None):
                 (patientId_post, appointmentDate, appointmentTime, purpose, doctor_id, notes)
             )
             appointment = cursor.fetchone()
+            appointment_id = appointment['appointment_id']
             conn.commit()
             if appointment and appointment.get('appointment_time'):
                 appointment['appointment_time'] = str(appointment['appointment_time'])
+
+            BILLING_AMOUNT = 10.00
+            due_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+            cursor.execute(
+                """
+                INSERT INTO billing (
+                    patient_id, amount, due_date, icd10_code, status, appointment_id
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING billing_id
+                """,
+                (
+                    patientId_post,
+                    BILLING_AMOUNT,
+                    due_date,
+                    purpose,  # The ICD-10 code from the appointment purpose
+                    'pending',  # Default status for auto-generated bill
+                    appointment_id  # Link the bill to the appointment
+                )
+            )
+            bill = cursor.fetchone()
+            billing_id = bill['billing_id']
+            # ---------------------------------------------------------------------
+
+            conn.commit()
+
+            return jsonify({
+                "message": "Appointment scheduled and bill created successfully",
+                "appointment_id": appointment_id,
+                "billing_id": billing_id
+            }), 201
             return jsonify(appointment), 201
 
         elif request.method == 'GET':
