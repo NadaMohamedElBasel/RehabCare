@@ -1,91 +1,28 @@
-// // src/components/AppointmentScheduler.js
-// import React, { useState, useEffect } from 'react';
-// import axios from 'axios';
-// import { useParams } from 'react-router-dom';
-// import './AppointmentScheduler.css';
-
-// function AppointmentScheduler() {
-//   const { patientId } = useParams();
-//   const [appointments, setAppointments] = useState([]);
-//   const [formData, setFormData] = useState({ appointmentDate: '', purpose: '' });
-//   const [error, setError] = useState('');
-
-//   useEffect(() => {
-//     fetchAppointments();
-//   }, [patientId]);
-
-//   const fetchAppointments = async () => {
-//     try {
-//       const response = await axios.get(`http://localhost:5000/api/appointments/${patientId}`);
-//       setAppointments(response.data);
-//     } catch (err) {
-//       setError(err.response?.data?.error || 'Failed to fetch appointments');
-//     }
-//   };
-
-//   const handleInputChange = (e) => {
-//     setFormData({ ...formData, [e.target.name]: e.target.value });
-//   };
-
-//   const handleSubmit = async (e) => {
-//     e.preventDefault();
-//     try {
-//       await axios.post('http://localhost:5000/api/appointments', {
-//         ...formData,
-//         patientId
-//       });
-//       fetchAppointments();
-//       setFormData({ appointmentDate: '', purpose: '' });
-//     } catch (err) {
-//       setError(err.response?.data?.error || 'Failed to schedule appointment');
-//     }
-//   };
-
-//   return (
-//     <div>
-//       <h2>Schedule Appointment</h2>
-//       <form onSubmit={handleSubmit}>
-//         <input
-//           type="datetime-local"
-//           name="appointmentDate"
-//           value={formData.appointmentDate}
-//           onChange={handleInputChange}
-//           required
-//         />
-//         <input
-//           type="text"
-//           name="purpose"
-//           placeholder="Purpose"
-//           value={formData.purpose}
-//           onChange={handleInputChange}
-//           required
-//         />
-//         <button type="submit">Schedule</button>
-//       </form>
-//       {error && <p style={{ color: 'red' }}>{error}</p>}
-//       <h3>Your Appointments</h3>
-//       <ul>
-//         {appointments.map((appt) => (
-//           <li key={appt.appointmentId}>
-//             {appt.appointmentDate} - {appt.purpose} ({appt.status})
-//           </li>
-//         ))}
-//       </ul>
-//     </div>
-//   );
-// }
-
-// export default AppointmentScheduler;
-
-
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useParams } from 'react-router-dom';
 import './AppointmentScheduler.css';
 
+// 🎯 NEW UTILITY FUNCTION: Generates 1-hour time slots
+const generateTimeSlots = (startHour = 9, endHour = 17) => {
+  const slots = [];
+  for (let hour = startHour; hour < endHour; hour++) {
+    const start = String(hour).padStart(2, '0') + ':00';
+    const end = String(hour + 1).padStart(2, '0') + ':00';
+    slots.push({
+      start: start,
+      display: `${start} - ${end}`,
+    });
+  }
+  return slots;
+};
+
+// Define the available time slots for the selector (9am to 5pm)
+const AVAILABLE_SLOTS = generateTimeSlots(9, 17);
+
+
 function AppointmentScheduler() {
   const { patientId } = useParams();
-  //const [appointments, setAppointments] = useState([]);
   const [upcomingAppointments, setUpcomingAppointments] = useState([]);
   const [pastAppointments, setPastAppointments] = useState([]);
   const [formData, setFormData] = useState({ appointmentDate: '',appointmentTime: '', purpose: '', doctor: '',notes: '' });
@@ -93,169 +30,36 @@ function AppointmentScheduler() {
   const [editFormData, setEditFormData] = useState({});
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     fetchAppointments();
   }, [patientId]);
 
   const fetchAppointments = async () => {
+    setIsLoading(true); // Start loading
     try {
-      //const response = await axios.get(`http://localhost:5000/api/appointments/${patientId}`);
       const response = await axios.get(`http://127.0.0.1:5000/api/appointments/${patientId}`);
       categorizeAppointments(response.data);
-      //setAppointments(response.data);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to fetch appointments');
+    } finally {
+      setIsLoading(false); // Stop loading
     }
   };
 
 
-// const categorizeAppointments = (appts) => {
-//   const now = new Date();
-//   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
- 
-//   console.log('Current date for comparison (start of day):', today);
- 
-//   const upcoming = [];
-//   const past = [];
-  
-//   appts.forEach(appt => {
-//     try {
-//       // Parse the RFC 2822 date format from backend
-//       const apptDate = new Date(appt.appointment_date);
-      
-//       // Create date object at midnight in local timezone
-//       const apptDateOnly = new Date(apptDate.getFullYear(), apptDate.getMonth(), apptDate.getDate());
-     
-//       console.log(`Appointment ${appt.appointment_id}:`, {
-//         date: appt.appointment_date,
-//         time: appt.appointment_time,
-//         parsedDate: apptDateOnly,
-//         today: today,
-//         apptTime: apptDateOnly.getTime(),
-//         todayTime: today.getTime(),
-//         difference: apptDateOnly.getTime() - today.getTime(),
-//         isUpcoming: apptDateOnly >= today,
-//         status: appt.status
-//       });
-     
-//       // Compare DATE ONLY
-//       if (apptDateOnly >= today && appt.status !== 'cancelled') {
-//         upcoming.push(appt);
-//       } else if (appt.status !== 'cancelled') {
-//         past.push(appt);
-//       }
-//     } catch (error) {
-//       console.error('Error parsing appointment date:', error, appt);
-//     }
-//   });
-  
-//   // Sort upcoming by date ascending
-//   upcoming.sort((a, b) => {
-//     const dateA = new Date(a.appointment_date);
-//     const dateB = new Date(b.appointment_date);
-//     return dateA - dateB;
-//   });
-  
-//   // Sort past by date descending
-//   past.sort((a, b) => {
-//     const dateA = new Date(a.appointment_date);
-//     const dateB = new Date(b.appointment_date);
-//     return dateB - dateA;
-//   });
-  
-//   console.log('Categorized appointments - Upcoming:', upcoming.length, 'Past:', past.length);
- 
-//   setUpcomingAppointments(upcoming);
-//   setPastAppointments(past);
-// };
-
-// const categorizeAppointments = (appts) => {
-//   const now = new Date();
-//   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
- 
-//   console.log('Current date for comparison (start of day):', today);
- 
-//   const upcoming = [];
-//   const past = [];
-  
-//   appts.forEach(appt => {
-//     try {
-//       // Parse the RFC 2822 / ISO date format from backend
-//       const apptDate = new Date(appt.appointment_date);
-      
-//       // Create date object at midnight in local timezone
-//       const apptDateOnly = new Date(apptDate.getFullYear(), apptDate.getMonth(), apptDate.getDate());
-     
-//       console.log(`Appointment ${appt.appointment_id}:`, {
-//         date: appt.appointment_date,
-//         time: appt.appointment_time,
-//         parsedDate: apptDateOnly,
-//         today: today,
-//         apptTime: apptDateOnly.getTime(),
-//         todayTime: today.getTime(),
-//         difference: apptDateOnly.getTime() - today.getTime(),
-//         isUpcoming: apptDateOnly >= today,
-//         status: appt.status
-//       });
-     
-//       // Include ALL appointments (don't drop cancelled). Place by date only.
-//       if (apptDateOnly >= today) {
-//         upcoming.push(appt);
-//       } else {
-//         past.push(appt);
-//       }
-//     } catch (error) {
-//       console.error('Error parsing appointment date:', error, appt);
-//     }
-//   });
-  
-//   // Sort upcoming by date ascending
-//   upcoming.sort((a, b) => {
-//     const dateA = new Date(a.appointment_date);
-//     const dateB = new Date(b.appointment_date);
-//     return dateA - dateB;
-//   });
-  
-//   // Sort past by date descending
-//   past.sort((a, b) => {
-//     const dateA = new Date(a.appointment_date);
-//     const dateB = new Date(b.appointment_date);
-//     return dateB - dateA;
-//   });
-  
-//   // Ensure past appointments do not show "scheduled" — treat scheduled past as completed
-//   const normalizedPast = past.map(a => {
-//     const copy = { ...a };
-//     if (!copy.status || copy.status.toLowerCase() === 'scheduled') {
-//       copy.status = 'completed';
-//     }
-//     return copy;
-//   });
-
-//   console.log('Categorized appointments - Upcoming:', upcoming.length, 'Past:', normalizedPast.length);
- 
-//   setUpcomingAppointments(upcoming);
-//   setPastAppointments(normalizedPast);
-// };
-
 const categorizeAppointments = (appts) => {
-  const now = new Date(); // Current date and time
- 
-  console.log('Current date and time for comparison:', now);
- 
+  const now = new Date();
+
   const upcoming = [];
   const past = [];
-  
+
   appts.forEach(appt => {
     try {
-      // Parse the date
       const apptDate = new Date(appt.appointment_date);
-      
-      // If there's a time, combine date + time for accurate comparison
       let apptDateTime;
       if (appt.appointment_time) {
-        // Parse time (format: "HH:MM:SS")
         const [hours, minutes, seconds] = appt.appointment_time.split(':').map(num => parseInt(num, 10));
         apptDateTime = new Date(
           apptDate.getFullYear(),
@@ -266,7 +70,6 @@ const categorizeAppointments = (appts) => {
           seconds || 0
         );
       } else {
-        // No time specified, use end of day (23:59:59) so it stays upcoming all day
         apptDateTime = new Date(
           apptDate.getFullYear(),
           apptDate.getMonth(),
@@ -276,20 +79,7 @@ const categorizeAppointments = (appts) => {
           59
         );
       }
-     
-      console.log(`Appointment ${appt.appointment_id}:`, {
-        date: appt.appointment_date,
-        time: appt.appointment_time,
-        parsedDateTime: apptDateTime,
-        now: now,
-        apptTime: apptDateTime.getTime(),
-        nowTime: now.getTime(),
-        difference: apptDateTime.getTime() - now.getTime(),
-        isUpcoming: apptDateTime >= now,
-        status: appt.status
-      });
-     
-      // Compare full date + time
+
       if (apptDateTime >= now) {
         upcoming.push(appt);
       } else {
@@ -299,41 +89,70 @@ const categorizeAppointments = (appts) => {
       console.error('Error parsing appointment date:', error, appt);
     }
   });
-  
-  // Sort upcoming by date+time ascending
+
+  // Sorting logic remains the same
   upcoming.sort((a, b) => {
     const dateA = new Date(a.appointment_date);
     const timeA = a.appointment_time ? a.appointment_time.split(':').map(n => parseInt(n, 10)) : [23, 59, 59];
     const dtA = new Date(dateA.getFullYear(), dateA.getMonth(), dateA.getDate(), timeA[0], timeA[1], timeA[2] || 0);
-    
+
     const dateB = new Date(b.appointment_date);
     const timeB = b.appointment_time ? b.appointment_time.split(':').map(n => parseInt(n, 10)) : [23, 59, 59];
     const dtB = new Date(dateB.getFullYear(), dateB.getMonth(), dateB.getDate(), timeB[0], timeB[1], timeB[2] || 0);
-    
+
     return dtA - dtB;
   });
-  
-  // Sort past by date+time descending
+
   past.sort((a, b) => {
     const dateA = new Date(a.appointment_date);
     const timeA = a.appointment_time ? a.appointment_time.split(':').map(n => parseInt(n, 10)) : [23, 59, 59];
     const dtA = new Date(dateA.getFullYear(), dateA.getMonth(), dateA.getDate(), timeA[0], timeA[1], timeA[2] || 0);
-    
+
     const dateB = new Date(b.appointment_date);
     const timeB = b.appointment_time ? b.appointment_time.split(':').map(n => parseInt(n, 10)) : [23, 59, 59];
     const dtB = new Date(dateB.getFullYear(), dateB.getMonth(), dateB.getDate(), timeB[0], timeB[1], timeB[2] || 0);
-    
+
     return dtB - dtA;
   });
 
-  console.log('Categorized appointments - Upcoming:', upcoming.length, 'Past:', past.length);
- 
   setUpcomingAppointments(upcoming);
   setPastAppointments(past);
 };
 
+  // Utility function to calculate the end time (remains the same)
+  const calculateEndTime = (startTime) => {
+    if (!startTime) return '';
+    try {
+      let [hours, minutes] = startTime.split(':').map(Number);
+
+      hours = hours + 1;
+
+      if (hours >= 24) {
+        hours = hours % 24;
+      }
+
+      const endHours = String(hours).padStart(2, '0');
+      const endMinutes = String(minutes).padStart(2, '0');
+
+      return `${endHours}:${endMinutes}`;
+    } catch (e) {
+      return '';
+    }
+  };
+
+  // 🎯 NEW CLICK HANDLER for the slot buttons (for creation form)
+  const handleSlotSelection = (slotStartTime) => {
+    setFormData({ ...formData, appointmentTime: slotStartTime });
+  };
+
+  // 🎯 NEW CLICK HANDLER for the slot buttons (for edit form)
+  const handleEditSlotSelection = (slotStartTime) => {
+    setEditFormData({ ...editFormData, appointmentTime: slotStartTime });
+  };
 
 
+  // Original handlers are kept but the input type changed from <select> to <div> of <button>s.
+  // We keep these names for variable integrity as requested.
   const handleInputChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
@@ -344,16 +163,20 @@ const categorizeAppointments = (appts) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.appointmentTime) {
+        setError('Please select a time slot.');
+        return;
+    }
+    // Clear previous error
+    setError('');
+
     try {
-      //await axios.post('http://localhost:5000/api/appointments', {
       await axios.post('http://127.0.0.1:5000/api/appointments', {
-        // ...formData,
-        // patientId
         patientId,
       appointmentDate: formData.appointmentDate,
-      appointmentTime: formData.appointmentTime,  // ENSURE THIS IS SENT
+      appointmentTime: formData.appointmentTime,
       purpose: formData.purpose,
-      doctorId: formData.doctor,  // or use a separate field
+      doctorId: formData.doctor,
       notes: formData.notes
       });
       setSuccess('Appointment scheduled successfully!');
@@ -369,7 +192,7 @@ const categorizeAppointments = (appts) => {
     setEditingId(appointment.appointment_id);
     setEditFormData({
       appointmentDate: appointment.appointment_date,
-      appointmentTime: appointment.appointment_time || '',
+      appointmentTime: appointment.appointment_time ? appointment.appointment_time.substring(0, 5) : '', // Ensure time is HH:MM for selection
       purpose: appointment.purpose,
       doctor_id: appointment.doctor_id || '',
       notes: appointment.notes || ''
@@ -378,10 +201,16 @@ const categorizeAppointments = (appts) => {
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
+    if (!editFormData.appointmentTime) {
+        setError('Please select a time slot.');
+        return;
+    }
+
     try {
       setError('');
       await axios.put(`http://127.0.0.1:5000/api/appointments/${editingId}`, {
         appointmentDate: editFormData.appointmentDate,
+        // Ensure only HH:MM:SS is sent, or just HH:MM if that's all the backend expects
         appointmentTime: editFormData.appointmentTime,
         purpose: editFormData.purpose,
         doctor_id: editFormData.doctor_id,
@@ -398,7 +227,7 @@ const categorizeAppointments = (appts) => {
   };
 
   const handleCancel = async (appointmentId) => {
-    
+    // ... cancellation logic (unchanged)
     try {
       setError('');
       await axios.put(`http://127.0.0.1:5000/api/appointments/${appointmentId}/cancel`);
@@ -416,62 +245,17 @@ const categorizeAppointments = (appts) => {
     setEditFormData({});
   };
 
-  const formatDateTime = (date, time) => {
-    const d = new Date(date);
-    const formatted = d.toLocaleDateString() + (time ? ` at ${time}` : '');
-    return formatted;
-  };
+  if (isLoading) {
+      return <div className="appointment-scheduler-container"><h2>Loading Appointments...</h2><p>Please wait while we fetch your schedule.</p></div>;
+  }
 
   return (
-    // <div>
-    //   <h2>Schedule Appointment</h2>
-    //   <form onSubmit={handleSubmit}>
-    //     <input
-    //       type="datetime-local"
-    //       name="appointmentDate"
-    //       value={formData.appointmentDate}
-    //       onChange={handleInputChange}
-    //       required
-    //     />
-    //     <input
-    //       type="text"
-    //       name="purpose"
-    //       placeholder="Purpose"
-    //       value={formData.purpose}
-    //       onChange={handleInputChange}
-    //       required
-    //     />
-    //     <input
-    //       type="text"
-    //       name="doctor"
-    //       placeholder="Doctor "
-    //       value={formData.doctor}
-    //       onChange={handleInputChange}
-    //     />
-    //     <button type="submit">Schedule</button>
-    //   </form>
-    //   {error && <p style={{ color: 'red' }}>{error}</p>}
-    //   <h3>Your Appointments</h3>
-    //   <ul>
-    //     {appointments.map((appt) => (
-    //       <li key={appt.appointmentId || appt.appointment_id}>
-    //         {appt.appointmentDate || appt.appointment_date} - {appt.purpose}
-
-           
-            
-    //         {appt.doctor_id ? ` (Doctor ID: ${appt.doctor_id})` : ''}
-    //         {appt.status ? ` (${appt.status})` : ''}
-    //         {appt.notes ? ` — Notes: ${appt.notes}` : ''}
-    //       </li>
-    //     ))}
-    //   </ul>
-    // </div>
     <div className="appointment-scheduler-container">
       <h2>Appointment Scheduling</h2>
 
       {/* Schedule New Appointment Form */}
       <section className="schedule-form-section">
-        <h3>Schedule New Appointment</h3>
+        <h3>Schedule New Appointment (1-Hour Slots)</h3>
         <form onSubmit={handleSubmit} className="appointment-form">
           <div className="form-group">
             <label>Date:</label>
@@ -483,15 +267,32 @@ const categorizeAppointments = (appts) => {
               required
             />
           </div>
-          <div className="form-group">
-            <label>Time:</label>
+
+          {/* 🎯 UI CHANGE: Slot Selector Buttons */}
+          <div className="form-group slot-selector">
+            <label>Select Time Slot:</label>
+            <div className="slot-buttons-container">
+              {AVAILABLE_SLOTS.map(slot => (
+                  <button
+                      key={slot.start}
+                      type="button" // Important: prevents form submission
+                      className={`slot-button ${formData.appointmentTime === slot.start ? 'selected' : ''}`}
+                      onClick={() => handleSlotSelection(slot.start)}
+                  >
+                      {slot.display}
+                  </button>
+              ))}
+            </div>
+            {/* Added a hidden input to make the required constraint work visually (optional) */}
             <input
-              type="time"
-              name="appointmentTime"
-              value={formData.appointmentTime}
-              onChange={handleInputChange}
+                type="hidden"
+                name="appointmentTime"
+                value={formData.appointmentTime}
+                required
             />
           </div>
+
+
           <div className="form-group">
             <label>Purpose:</label>
             <input
@@ -551,15 +352,30 @@ const categorizeAppointments = (appts) => {
             required
           />
         </div>
-        <div className="form-group">
-          <label>Time:</label>
-          <input
-            type="time"
-            name="appointmentTime"
-            value={editFormData.appointmentTime}
-            onChange={handleEditInputChange}
-          />
+
+        {/* 🎯 UI CHANGE: Edit Slot Selector Buttons */}
+        <div className="form-group slot-selector">
+            <label>Select Time Slot:</label>
+            <div className="slot-buttons-container">
+                {AVAILABLE_SLOTS.map(slot => (
+                    <button
+                        key={slot.start}
+                        type="button" // Important: prevents form submission
+                        className={`slot-button ${editFormData.appointmentTime === slot.start ? 'selected' : ''}`}
+                        onClick={() => handleEditSlotSelection(slot.start)}
+                    >
+                        {slot.display}
+                    </button>
+                ))}
+            </div>
+            <input
+                type="hidden"
+                name="appointmentTime"
+                value={editFormData.appointmentTime}
+                required
+            />
         </div>
+
         <div className="form-group">
           <label>Purpose:</label>
           <input
@@ -597,7 +413,6 @@ const categorizeAppointments = (appts) => {
       <>
         <div className="appointment-header">
           <h4>{appt.purpose}</h4>
-          {/* dynamic badge class based on status */}
           <span
             className={`status-badge ${
               (appt.status || '').toLowerCase() === 'cancelled' ? 'cancelled' :
@@ -608,12 +423,18 @@ const categorizeAppointments = (appts) => {
           </span>
         </div>
         <div className="appointment-details">
-          <p><strong>Date & Time:</strong> {formatDateTime(appt.appointment_date, appt.appointment_time)}</p>
+          {/* Display as a time range using the stored start time */}
+          <p>
+            <strong>Time Slot:</strong> {appt.appointment_time ?
+            `${appt.appointment_time.substring(0, 5)} - ${calculateEndTime(appt.appointment_time)}`
+            : 'All Day'}
+          </p>
+          <p><strong>Date:</strong> {new Date(appt.appointment_date).toLocaleDateString()}</p>
+
           {appt.doctor_id && <p><strong>Doctor ID:</strong> {appt.doctor_id}</p>}
           {appt.notes && <p><strong>Notes:</strong> {appt.notes}</p>}
         </div>
 
-        {/* hide Edit / Cancel if already cancelled */}
         { (appt.status || '').toLowerCase() !== 'cancelled' ? (
           <div className="button-group">
             <button
@@ -659,10 +480,17 @@ const categorizeAppointments = (appts) => {
                   >
                     {appt.status || 'completed'}
                   </span>
-                  
+
                 </div>
                 <div className="appointment-details">
-                  <p><strong>Date & Time:</strong> {formatDateTime(appt.appointment_date, appt.appointment_time)}</p>
+                  {/* Display as a time range using the stored start time */}
+                  <p>
+                    <strong>Time Slot:</strong> {appt.appointment_time ?
+                    `${appt.appointment_time.substring(0, 5)} - ${calculateEndTime(appt.appointment_time)}`
+                    : 'All Day'}
+                  </p>
+                  <p><strong>Date:</strong> {new Date(appt.appointment_date).toLocaleDateString()}</p>
+
                   {appt.doctor_id && <p><strong>Doctor ID:</strong> {appt.doctor_id}</p>}
                   {appt.notes && <p><strong>Notes:</strong> {appt.notes}</p>}
                 </div>
@@ -676,3 +504,4 @@ const categorizeAppointments = (appts) => {
 }
 
 export default AppointmentScheduler;
+

@@ -7,6 +7,8 @@ import AppointmentScheduler from './components/AppointmentScheduler';
 import MedicalRecords from './components/MedicalRecords';
 import Prescriptions from './components/Prescriptions';
 import Billing from './components/Billing';
+import StaffAppointmentManager from "./components/StaffAppointmentManager";
+import AdminBillingManager from "./components/AdminBillingManager";
 import './App.css';
 //import Navbar from './components/Navbar';
 import LandingPage from './components/LandingPage';
@@ -89,6 +91,8 @@ function App() {
           {/* Doctor Tools */}
           <Route path="/doctor/:doctorId/appointments" element={<DoctorAppointments />} />
           <Route path="/doctor/:doctorId/prescriptions" element={<DoctorPrescriptions />} />
+          <Route path={"/staff/appointments"} element={<StaffAppointmentManager />} />
+            <Route path={"/admin/billing"} element={<AdminBillingManager />} />
 
 
         </Routes>

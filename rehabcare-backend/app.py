@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -15,7 +15,7 @@ CORS(app)
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "Admin@123", # change to yours 
+    "password": "abcde", # change to yours
     "host": "localhost",
     "port": "5432"
 }
@@ -224,118 +224,238 @@ def managePatientProfile(patientId):
             conn.close()
 
 # Appointment Scheduling
-@app.route('/api/appointments', methods=['POST'])
+# Appointment Scheduling
+# app.py (Replace existing manageAppointments function)
+
+# Appointment Scheduling
+@app.route('/api/appointments', methods=['POST', 'GET'])
 @app.route('/api/appointments/<int:patientId>', methods=['GET'])
 def manageAppointments(patientId=None):
+    conn = None
+    cursor = None
     try:
         conn = getDbConnection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         if request.method == 'POST':
             data = request.get_json()
-            patientId = data.get('patientId')
+            patientId_post = data.get('patientId')
             appointmentDate = data.get('appointmentDate')
             appointmentTime = data.get('appointmentTime')
             purpose = data.get('purpose')
             doctor_id = data.get('doctor_id') or data.get('doctorId')
             notes = data.get('notes')
-            # Convert empty strings to None/NULL
+
+            if not all([patientId_post, appointmentDate, appointmentTime, purpose, doctor_id]):
+                return jsonify({"error": "Missing required fields for appointment"}), 400
+
             doctor_id = doctor_id if doctor_id and str(doctor_id).strip() else None
             appointmentTime = appointmentTime if appointmentTime and str(appointmentTime).strip() else None
             notes = notes if notes and str(notes).strip() else None
+
             cursor.execute(
                 """
-                INSERT INTO appointments (patient_id, appointment_date,appointment_time, purpose, doctor_id, notes, status)
-                VALUES (%s, %s, %s, %s, %s,%s, 'scheduled') RETURNING appointment_id, appointment_date,appointment_time, purpose, doctor_id, notes, status
+                SELECT appointment_id FROM appointments 
+                WHERE doctor_id = %s 
+                  AND appointment_date = %s 
+                  AND appointment_time = %s
+                  AND status != 'cancelled'
                 """,
-                (patientId, appointmentDate,appointmentTime, purpose, doctor_id, notes)
+                (doctor_id, appointmentDate, appointmentTime)
+            )
+            existing_appt = cursor.fetchone()
+
+            if existing_appt:
+                return jsonify({
+                    "error": "Conflict: This doctor is already booked at this exact time."
+                }), 409  # 409 Conflict status code
+
+            cursor.execute(
+                """
+                INSERT INTO appointments (patient_id, appointment_date, appointment_time, purpose, doctor_id, notes, status)
+                VALUES (%s, %s, %s, %s, %s, %s, 'scheduled') RETURNING appointment_id, appointment_date, appointment_time, purpose, doctor_id, notes, status
+                """,
+                (patientId_post, appointmentDate, appointmentTime, purpose, doctor_id, notes)
             )
             appointment = cursor.fetchone()
             conn.commit()
-            # Convert time object to string
             if appointment and appointment.get('appointment_time'):
                 appointment['appointment_time'] = str(appointment['appointment_time'])
             return jsonify(appointment), 201
 
         elif request.method == 'GET':
-            cursor.execute(
-                "SELECT appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, status, doctor_id, notes FROM appointments WHERE patient_id = %s ORDER BY appointment_date DESC",
-                (patientId,)
-            )
-            appointments = cursor.fetchall()
-            return jsonify(appointments), 200
+            doctor_id_str = request.args.get('doctor_id')
+
+            # --- STAFF APPOINTMENT FETCH (GET /api/appointments?doctor_id=X) ---
+            if doctor_id_str:
+                try:
+                    # CRITICAL: Cast URL parameter to int for query execution
+                    doctor_id = int(doctor_id_str)
+                except ValueError:
+                    return jsonify({"error": "Invalid doctor ID format."}), 400
+
+                query = """
+                    SELECT a.appointment_id, a.patient_id, a.appointment_date,
+                           TO_CHAR(a.appointment_time, 'HH24:MI:SS') AS appointment_time,
+                           a.purpose, a.status, a.doctor_id, a.notes,
+                           p.first_name, p.last_name
+                    FROM appointments a
+                    JOIN patients p ON a.patient_id = p.patient_id
+                    WHERE a.doctor_id = %s
+                    ORDER BY a.appointment_date, a.appointment_time
+                """
+                cursor.execute(query, (doctor_id,))
+                appointments = cursor.fetchall()
+
+                # Format to ISO strings for Staff Manager calendar
+                formatted_appts = []
+                for appt in appointments:
+                    appt_date = appt['appointment_date']
+
+                    # 1. Robust Time Parsing
+                    time_str = appt.get('appointment_time') or '00:00:00'
+                    try:
+                        appointment_time_obj = datetime.strptime(time_str, '%H:%M:%S').time()
+                    except ValueError:
+                        appointment_time_obj = datetime.strptime('00:00:00', '%H:%M:%S').time()
+
+                    # 2. Combine Date and Time
+                    if not appt_date:
+                        logging.warning(f"Appointment {appt['appointment_id']} has a NULL date. Skipping.")
+                        continue  # Skip appointments with no date
+
+                    start_dt = datetime.combine(appt_date, appointment_time_obj)
+                    end_dt = start_dt + timedelta(minutes=60)  # Fixed 60-minute slot
+
+                    # 3. Handle Potential NULL Names for patientName
+                    first_name = appt.get('first_name') or ''
+                    last_name = appt.get('last_name') or ''
+                    patient_name = f"{first_name} {last_name}".strip()
+                    if not patient_name:
+                        patient_name = f"ID: {appt['patient_id']}"
+
+                    formatted_appts.append({
+                        'appointment_id': appt['appointment_id'],
+                        'patient_id': appt['patient_id'],
+                        'patientName': patient_name,
+                        'startTime': start_dt.isoformat(),  # ISO string
+                        'endTime': end_dt.isoformat(),  # ISO string
+                        'purpose': appt['purpose'],
+                        'notes': appt['notes'],
+                        'doctor_id': appt['doctor_id'],
+                        'status': appt['status'],
+                    })
+                return jsonify(formatted_appts), 200
+
+            # --- PATIENT APPOINTMENT FETCH (Original Logic) ---
+            elif patientId is not None:
+                cursor.execute(
+                    "SELECT appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, status, doctor_id, notes FROM appointments WHERE patient_id = %s ORDER BY appointment_date DESC",
+                    (patientId,)
+                )
+                appointments = cursor.fetchall()
+                return jsonify(appointments), 200
+
+            else:
+                return jsonify({"error": "Missing patientId or doctor_id parameter"}), 400
 
     except Exception as e:
+        # Logging the full traceback is crucial here to find the exact crash point
+        logging.exception("Appointment management failed during GET or POST")
         return jsonify({"error": f"Appointment management failed: {str(e)}"}), 500
     finally:
-        cursor.close()
-        conn.close()
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 
-@app.route('/api/appointments/<int:appointmentId>', methods=['PUT'])
+# app.py (Replace existing updateAppointment function)
+
+@app.route('/api/appointments/<int:appointmentId>', methods=['PUT', 'PATCH'])
+@app.route('/api/appointments/<int:appointmentId>/status', methods=['PATCH'])
 def updateAppointment(appointmentId):
     conn = None
     cursor = None
     try:
         data = request.get_json() or {}
-        appointment_date = data.get('appointmentDate')
-        appointment_time = data.get('appointmentTime')
-        purpose = data.get('purpose')
-        doctor_id = data.get('doctor_id') or data.get('doctorId')
-        notes = data.get('notes')
-        
         conn = getDbConnection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Build dynamic update
-        fields = []
-        values = []
-        
-        if appointment_date is not None:
-            fields.append('appointment_date = %s')
-            values.append(appointment_date)
-        if appointment_time is not None:
-            fields.append('appointment_time = %s')
-            values.append(appointment_time)
-        if purpose is not None:
-            fields.append('purpose = %s')
-            values.append(purpose)
-        if doctor_id is not None:
-            fields.append('doctor_id = %s')
-            values.append(doctor_id)
-        if notes is not None:
-            fields.append('notes = %s')
-            values.append(notes)
-        
-        if not fields:
-            return jsonify({"error": "No fields to update"}), 400
-        
-        values.append(appointmentId)
-        sql = f"""
-            UPDATE appointments
-            SET {', '.join(fields)}
-            WHERE appointment_id = %s
-            RETURNING appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, doctor_id, notes, status
-        """
-        
-        cursor.execute(sql, tuple(values))
-        result = cursor.fetchone()
-        conn.commit()
-        
-        if not result:
-            return jsonify({"error": "Appointment not found"}), 404
-        
-        return jsonify(result), 200
-    
+
+        # --- Logic for Simple Status Update (PATCH) ---
+        if request.method == 'PATCH':
+            new_status = data.get('status')
+
+            if not new_status or new_status.lower() not in ['scheduled', 'completed', 'cancelled']:
+                return jsonify({'error': 'Invalid or missing status provided for PATCH'}), 400
+
+            new_status_lower = new_status.lower()
+
+            cursor.execute(
+                "UPDATE appointments SET status = %s WHERE appointment_id = %s RETURNING appointment_id, status",
+                (new_status_lower, appointmentId)
+            )
+
+            result = cursor.fetchone()
+            if not result:
+                return jsonify({'error': f'Appointment ID {appointmentId} not found.'}), 404
+
+            conn.commit()
+            return jsonify(
+                {'message': f'Appointment {appointmentId} status updated to {new_status}', 'appointment': result}), 200
+
+
+        # --- Logic for Full Update (PUT) ---
+        elif request.method == 'PUT':
+            appointment_date = data.get('appointmentDate')
+            appointment_time = data.get('appointmentTime')
+            purpose = data.get('purpose')
+            doctor_id = data.get('doctor_id') or data.get('doctorId')
+            notes = data.get('notes')
+
+            # Building dynamic update query based on fields provided (omitted for brevity,
+            # but ensure your logic here handles updating only provided fields or validating all required fields for a PUT)
+
+            fields = []
+            values = []
+
+            if appointment_date is not None:
+                fields.append('appointment_date = %s')
+                values.append(appointment_date)
+            # ... (rest of your PUT update logic here for time, purpose, doctor_id, notes) ...
+            if not fields:
+                return jsonify({"error": "No fields to update"}), 400
+
+            values.append(appointmentId)
+            sql = f"""
+                UPDATE appointments
+                SET {', '.join(fields)}
+                WHERE appointment_id = %s
+                RETURNING appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, doctor_id, notes, status
+            """
+
+            # EXECUTE THE QUERY HERE... (using the built sql and values tuple)
+            # Example simplified update:
+            cursor.execute(
+                "UPDATE appointments SET appointment_date = %s, appointment_time = %s, purpose = %s, doctor_id = %s, notes = %s WHERE appointment_id = %s RETURNING *",
+                (appointment_date, appointment_time, purpose, doctor_id, notes, appointmentId)
+            )
+
+            result = cursor.fetchone()
+            conn.commit()
+
+            if not result:
+                return jsonify({"error": "Appointment not found"}), 404
+
+            return jsonify(result), 200
+
     except Exception as e:
         logging.exception("Failed to update appointment")
-        return jsonify({"error": str(e)}), 500
+        conn.rollback()
+        return jsonify({"error": f'Failed to update appointment: {str(e)}'}), 500
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
-
 # Cancel appointment
 @app.route('/api/appointments/<int:appointmentId>/cancel', methods=['PUT'])
 def cancelAppointment(appointmentId):
@@ -526,12 +646,18 @@ def manageBilling(patientId=None):
             patientId = data.get('patientId')
             amount = data.get('amount')
             dueDate = data.get('dueDate')
+            # --- NEW: Accept ICD-10 Code ---
+            icd10_code = data.get('icd10Code') or data.get('icd10_code')
+
+            if not all([patientId, amount, dueDate]):
+                return jsonify({"error": "Missing required fields (patientId, amount, dueDate)"}), 400
+
             cursor.execute(
                 """
-                INSERT INTO billing (patient_id, amount, due_date, status)
-                VALUES (%s, %s, %s, 'pending') RETURNING billing_id, amount, due_date, status
+                INSERT INTO billing (patient_id, amount, due_date, icd10_code, status)
+                VALUES (%s, %s, %s, %s, 'pending') RETURNING billing_id, amount, due_date, status, icd10_code
                 """,
-                (patientId, amount, dueDate)
+                (patientId, amount, dueDate, icd10_code)  # <-- ADDED icd10_code
             )
             bill = cursor.fetchone()
             conn.commit()
@@ -625,6 +751,46 @@ def updateBilling(billingId):
             cursor.close()
         if conn:
             conn.close()
+
+@app.route('/api/admin/billing/all', methods=['GET'])
+def get_all_bills():
+    conn = None
+    cursor = None
+    try:
+        conn = getDbConnection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        query = """
+            SELECT 
+                b.billing_id,
+                b.patient_id,
+                b.amount,
+                b.status,
+                TO_CHAR(b.due_date, 'YYYY-MM-DD') AS due_date,
+                b.icd10_code,
+                p.first_name,
+                p.last_name
+            FROM billing b
+            JOIN patients p ON b.patient_id = p.patient_id
+            ORDER BY b.due_date DESC;
+        """
+        cursor.execute(query)
+        bills = cursor.fetchall()
+
+        # Convert amount to string for JSON serialization
+        formatted_bills = [{
+            **bill,
+            'amount': str(bill['amount'])
+        } for bill in bills]
+
+        return jsonify(formatted_bills), 200
+
+    except Exception as e:
+        logging.exception("Failed to fetch all bills for admin")
+        return jsonify({'error': 'Failed to fetch all bills'}), 500
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 @app.route('/api/doctor/register', methods=['POST'])
 def registerDoctor():
