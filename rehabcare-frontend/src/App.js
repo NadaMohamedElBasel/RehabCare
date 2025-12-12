@@ -13,6 +13,15 @@ import LandingPage from './components/LandingPage';
 import Login from './components/Login';
 
 
+// Doctor Components
+import DoctorRegistration from './components/doctor/DoctorRegistration';
+import DoctorLogin from './components/doctor/DoctorLogin';
+import DoctorProfile from './components/doctor/DoctorProfile';
+import DoctorAppointments from './components/doctor/DoctorAppointments';
+import DoctorPrescriptions from './components/doctor/DoctorPrescriptions';
+
+
+
 // function App() {
 //   return (
 //     <div className="App">
@@ -68,6 +77,20 @@ function App() {
           <Route path="/records/:patientId" element={<MedicalRecords />} />
           <Route path="/prescriptions/:patientId" element={<Prescriptions />} />
           <Route path="/billing/:patientId" element={<Billing />} />
+          {/* ---------------------- */}        
+          {/* DOCTOR ROUTES */}
+          {/* ---------------------- */}
+          <Route path="/doctor-register" element={<DoctorRegistration />} />
+          <Route path="/doctor-login" element={<DoctorLogin />} />
+
+          {/* Doctor Dashboard */}
+          <Route path="/doctor-dashboard/:doctorId/*" element={<DoctorProfile />} />
+
+          {/* Doctor Tools */}
+          <Route path="/doctor/:doctorId/appointments" element={<DoctorAppointments />} />
+          <Route path="/doctor/:doctorId/prescriptions" element={<DoctorPrescriptions />} />
+
+
         </Routes>
       </div>
     </Router>

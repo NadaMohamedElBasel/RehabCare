@@ -1,0 +1,171 @@
+CREATE TABLE users  (
+  user_id SERIAL primary key,
+  username varchar,
+  password_hash varchar,
+  email varchar,
+  role varchar
+);
+
+CREATE TABLE Patients (  
+    patient_id SERIAL PRIMARY KEY,
+    first_name VARCHAR,
+    last_name VARCHAR,
+    email VARCHAR UNIQUE,
+    password_hash VARCHAR,
+    date_of_birth DATE,
+    created_at TIMESTAMP,
+    phone_number VARCHAR,
+    gender VARCHAR
+);
+
+CREATE TABLE Doctor (
+    doctor_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
+    first_name VARCHAR,
+    last_name VARCHAR,
+    date_of_birth DATE,
+    specialization VARCHAR,
+    phone VARCHAR,
+    email VARCHAR
+);
+
+CREATE TABLE Admin (
+    admin_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
+    first_name VARCHAR,
+    last_name VARCHAR,
+    date_of_birth DATE,
+    phone VARCHAR,
+    email VARCHAR,
+    role_description VARCHAR
+);
+
+
+
+CREATE TABLE billing (
+    billing_id SERIAL PRIMARY KEY,
+    patient_id INTEGER REFERENCES patients(patient_id),
+    amount DECIMAL(10,2),
+    status VARCHAR,
+    due_date DATE,
+    created_at TIMESTAMP,
+    appointment_id INTEGER,
+    icd10_code VARCHAR,
+    insurance_company VARCHAR,
+    payment_method VARCHAR
+);
+
+
+CREATE TABLE RadiologyScan (
+    scan_id SERIAL PRIMARY KEY,
+    patient_id INTEGER REFERENCES patients(patient_id),
+    file_path VARCHAR,
+    scan_type VARCHAR,
+    upload_date DATE,
+    analyzed BOOLEAN
+);
+
+CREATE TABLE CDSSResult (
+    cdss_id SERIAL PRIMARY KEY,
+    scan_id INTEGER REFERENCES radiologyscan(scan_id),
+    analysis_summary TEXT,
+    diagnostic_suggestions TEXT,
+    confidence_score FLOAT,
+    generated_on DATE
+);
+
+CREATE TABLE Annotation (
+    annotation_id SERIAL PRIMARY KEY,
+    scan_id INTEGER REFERENCES radiologyscan(scan_id),
+    doctor_id INTEGER REFERENCES doctor(doctor_id),
+    coordinates VARCHAR,
+    note_text TEXT,
+    timestamp TIMESTAMP
+);
+
+CREATE TABLE Report (
+    report_id SERIAL PRIMARY KEY,
+    doctor_id INTEGER REFERENCES doctor(doctor_id),
+    title VARCHAR,
+    content TEXT,
+    created_on DATE
+);
+CREATE TABLE appointments (
+    appointment_id SERIAL PRIMARY KEY,
+    patient_id INTEGER REFERENCES patients(patient_id),
+    doctor_id INTEGER REFERENCES doctor(doctor_id),
+    appointment_date DATE,
+    appointment_time TIME,
+    purpose TEXT,
+    notes TEXT,
+    status VARCHAR,
+    created_at TIMESTAMP
+);
+
+CREATE TABLE medical_records (
+    record_id SERIAL PRIMARY KEY,
+    patient_id INTEGER REFERENCES patients(patient_id),
+    record_type VARCHAR,
+    record_data TEXT,
+    created_at TIMESTAMP,
+    created_by INTEGER,
+    visit_date DATE,
+    department VARCHAR
+);
+
+CREATE TABLE prescriptions (
+    prescription_id SERIAL PRIMARY KEY,
+    patient_id INTEGER REFERENCES patients(patient_id),
+    medication_name VARCHAR,
+    dosage VARCHAR,
+    instructions TEXT,
+    issued_date DATE,
+    frequency VARCHAR,
+    duration VARCHAR,
+    status VARCHAR,
+    type VARCHAR
+);
+
+-- DROP TABLE IF EXISTS    
+
+--  admin           ,
+--  annotation      ,
+--  appointments    ,
+--  billing         ,
+--  cdssresult      ,
+--  doctor          ,
+--  medical_records ,
+--  prescriptions   ,
+--  radiologyscan   ,
+--  report          ,
+--  patients ,
+--  users           
+-- CASCADE;
+
+
+-- DELETE FROM users;
+
+
+-- INSERT INTO users (username, password_hash, email, role)
+-- VALUES ('doctor_main', 'hashedpassword', 'doctor1@test.com', 'DOCTOR')
+-- RETURNING user_id;
+
+-- INSERT INTO doctor (
+--     user_id,
+--     first_name,
+--     last_name,
+--     date_of_birth,
+--     specialization,
+--     phone,
+--     email
+-- )
+-- VALUES (
+--     1,               
+--     'Ahmed',
+--     'Mahmoud',
+--     '1990-05-20',
+--     'Cardiology',
+--     '0100000000',
+--     'doctor1@test.com'
+-- )
+-- RETURNING doctor_id;

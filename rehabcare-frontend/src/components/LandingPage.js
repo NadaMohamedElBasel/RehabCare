@@ -28,6 +28,11 @@ function LandingPage() {
         <div className="landing-options">
           <a href="/register" className="option-button">Register</a>
           <a href="/login" className="option-button">Login</a>
+        {/* NEW: Doctor Register */}
+          <a href="/doctor-register" className="option-button doctor-btn">
+            Doctor Register
+          </a>
+
         </div>
       </div>
     </div>
