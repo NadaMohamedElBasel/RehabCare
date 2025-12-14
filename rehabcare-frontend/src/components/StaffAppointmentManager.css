@@ -1,0 +1,397 @@
+/* src/components/AppointmentScheduler.css */
+
+/* --- Existing Styles (from your original file) --- */
+.appointments-container {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 1rem;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.appointments-list {
+  list-style: none;
+  padding: 0;
+}
+
+.appointment-item {
+  padding: 0.5rem;
+  border-bottom: 1px solid #ddd;
+}
+/* ------------------------------------------------ */
+
+/* --- NEW STAFF MANAGER STYLES --- */
+
+/* Controls for Date Selector and Create Button */
+.staff-manager .controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.staff-manager .schedule-button {
+    padding: 8px 12px;
+    background-color: #28a745; /* Green for creation */
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* Enhanced Appointment Item Layout */
+.staff-manager .appointment-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    margin-bottom: 8px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    background-color: white;
+}
+
+.appointment-details {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+.appointment-details .time {
+    font-weight: bold;
+    color: #007bff;
+    margin-bottom: 4px;
+}
+
+.appointment-details .doctor {
+    font-size: 0.9em;
+    color: #6c757d;
+}
+
+/* Status Tags */
+.status-tag {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    font-weight: 600;
+    margin-right: 10px;
+}
+
+.status-scheduled { background-color: #e8f5e9; color: #2e7d32; } /* Green */
+.status-completed { background-color: #e0f7fa; color: #00838f; } /* Teal */
+.status-cancelled { background-color: #ffebee; color: #c62828; } /* Red */
+.status-waiting { background-color: #fffde7; color: #f9a825; } /* Yellow */
+
+
+/* Action Buttons */
+.action-buttons button {
+    margin-left: 5px;
+    padding: 5px 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.calendar-view {
+    max-width: 800px;
+    margin: 20px auto;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+}
+
+.days-of-week, .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    text-align: center;
+}
+
+.day-name {
+    font-weight: bold;
+    padding: 5px;
+}
+
+.day-cell {
+    padding: 10px 5px;
+    height: 60px;
+    border: 1px solid #eee;
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+    transition: background-color 0.2s;
+}
+
+.day-cell.other-month {
+    color: #ccc;
+    cursor: default;
+}
+
+.day-cell:not(.other-month):hover {
+    background-color: #f0f0f0;
+}
+
+.day-cell.selected {
+    background-color: #007bff;
+    color: white;
+    border-color: #0056b3;
+}
+
+.day-cell.has-appointments {
+    background-color: #e0f7fa; /* Light blue hint */
+    font-weight: bold;
+}
+
+.appointment-dot {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    background-color: red;
+    border-radius: 50%;
+}
+
+/* Day Slot Manager Styles */
+.day-slot-manager {
+    margin-top: 30px;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+}
+
+.time-slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.slot-button {
+    padding: 10px;
+    border-radius: 4px;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 50px;
+    font-size: 0.9em;
+}
+
+.slot-button.available {
+    background-color: #e6ffe6;
+    border: 1px solid #4CAF50;
+    color: #1e4a20;
+    cursor: pointer;
+}
+
+.slot-button.booked {
+    background-color: #ffe6e6;
+    border: 1px solid #F44336;
+    color: #630000;
+    cursor: pointer; /* Allows clicking to edit */
+}
+
+.slot-info {
+    font-weight: normal;
+    font-size: 0.8em;
+    margin-top: 2px;
+}
+
+.btn-complete { background-color: #007bff; color: white; }
+.btn-cancel { background-color: #dc3545; color: white; }
+.btn-edit { background-color: #6c757d; color: white; }
+
+.scheduler-container {
+    max-width: 1200px;
+    margin: 40px auto;
+    padding: 20px 30px; /* Increased padding */
+    background-color: #f8f9fa; /* Light grey background */
+    border-radius: 12px;
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15); /* Stronger shadow for depth */
+}
+
+h2 {
+    color: #007bff;
+    border-bottom: 2px solid #e9ecef;
+    padding-bottom: 15px;
+    margin-bottom: 25px;
+}
+h3 {
+    color: #343a40;
+    margin-top: 35px;
+    margin-bottom: 18px;
+    font-size: 1.5rem;
+}
+
+/* Style for the Doctor ID selection box */
+.section-box {
+    border: 1px solid #ced4da !important;
+    padding: 15px !important;
+    border-radius: 8px;
+    background-color: #ffffff;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* ------------------------------------------------ */
+/* --- APPOINTMENT LIST CARD STYLING ---*/
+/* ------------------------------------------------ */
+
+/* Overwrites the basic .appointment-item style */
+.appointment-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    margin-bottom: 12px;
+    border-radius: 8px;
+    background-color: #ffffff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border-left: 6px solid #007bff; /* Primary color highlight */
+    transition: transform 0.2s;
+}
+
+.appointment-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.appt-info {
+    flex-grow: 1;
+    line-height: 1.6;
+}
+
+.appt-info strong {
+    font-size: 1.15em;
+    color: #495057;
+    display: block;
+    margin-bottom: 5px;
+}
+.appt-info p {
+    margin: 2px 0;
+    font-size: 0.95em;
+    color: #6c757d;
+}
+
+/* ------------------------------------------------ */
+/* --- STATUS DROPDOWN (UI ENHANCEMENT) ---*/
+/* ------------------------------------------------ */
+
+.appt-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    min-width: 170px;
+    margin-left: 20px;
+}
+
+.status-label {
+    font-weight: 600;
+    color: #495057;
+    font-size: 0.9em;
+    margin-bottom: 5px;
+    display: block;
+}
+
+.status-dropdown {
+    padding: 8px 15px;
+    border-radius: 6px;
+    border: 1px solid #ced4da;
+    font-weight: bold;
+    text-transform: uppercase;
+    cursor: pointer;
+    text-align: center;
+    min-width: 100%;
+
+    /* Remove default arrow for a cleaner look */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+
+    /* Add custom arrow */
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20height%3D%2216%22%20width%3D%2216%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M9.293%2012.95l.707.707L15%208.243l-1.414-1.414L10%2010.828%206.414%207.364%205%208.778z%22%20fill%3D%22%236c757d%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px;
+}
+
+
+/* COLOR CODING based on status value (Scheduled, Completed, Cancelled) */
+.status-dropdown.status-scheduled {
+    background-color: #e3f2fd; /* Light Blue */
+    color: #0d47a1; /* Dark Blue Text */
+    border-color: #90caf9;
+}
+
+.status-dropdown.status-completed {
+    background-color: #e8f5e9; /* Light Green */
+    color: #2e7d32; /* Dark Green Text */
+    border-color: #a5d6a7;
+}
+
+.status-dropdown.status-cancelled {
+    background-color: #ffebee; /* Light Red */
+    color: #c62828; /* Dark Red Text */
+    border-color: #ef9a9a;
+}
+
+/* ------------------------------------------------ */
+/* --- TIME SLOTS (CALENDAR VIEW) REFINEMENT ---*/
+/* ------------------------------------------------ */
+
+.time-slots-grid {
+    /* Kept your grid definition */
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px; /* Increased gap */
+    padding: 15px;
+    background-color: #f1f3f5; /* Very light grey for background */
+    border-radius: 8px;
+}
+
+.slot-button {
+    /* Improved default styling */
+    padding: 10px 15px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-weight: 500;
+    transition: all 0.2s;
+    text-align: center;
+    line-height: 1.4;
+}
+
+.slot-button.available {
+    background-color: #e6ffed; /* Very light success green */
+    color: #28a745;
+    border-color: #c3e6cb;
+}
+
+.slot-button.available:hover {
+    background-color: #d1f7d5; /* Slightly darker hover */
+    box-shadow: 0 0 5px rgba(40, 167, 69, 0.4);
+}
+
+
+.slot-button.booked {
+
+    background-color: #f8d7da; /* Light Red/Pink Background */
+    color: #721c24;             /* Dark Red Text */
+    border-color: #f5c6cb;
+    cursor: not-allowed;
+    opacity: 1; /* Keep opacity at 1 to ensure full visibility, unlike grayed-out disabled elements */
+}
+
+.slot-button.selected {
+    border: 3px solid #007bff; /* Clearer selection border */
+    background-color: #cce5ff;
+    color: #004085;
+    box-shadow: 0 0 8px rgba(0, 123, 255, 0.5);
+}
