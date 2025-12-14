@@ -32,6 +32,10 @@ function LandingPage() {
           <a href="/doctor-register" className="option-button doctor-btn">
             Doctor Register
           </a>
+        {/* Admin login */}
+          <a href="/admin-login" className="option-button doctor-btn">
+            Admin Login
+          </a>
 
         </div>
       </div>
