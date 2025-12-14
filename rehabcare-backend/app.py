@@ -825,7 +825,376 @@ def doctorCreatePrescription():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/admin/login', methods=['POST'])
+def adminLogin():
+    data = request.get_json() or {}
+    email = data.get("email")
+    password = data.get("password")
 
+    if not email or not password:
+        return jsonify({"error": "Missing credentials"}), 400
+
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        SELECT 
+            u.user_id,
+            u.password_hash,
+            a.admin_id
+        FROM users u
+        JOIN admin a ON a.user_id = u.user_id
+        WHERE u.email = %s AND u.role = 'ADMIN'
+    """, (email,))
+
+    admin = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not admin:
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    if not bcrypt.checkpw(password.encode(), admin["password_hash"].encode()):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    return jsonify({
+        "adminId": admin["admin_id"],
+        "message": "Admin login successful"
+    }), 200
+
+@app.route('/api/admin/dashboard', methods=['GET'])
+def adminDashboard():
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("SELECT COUNT(*) FROM doctor")
+    total_doctors = cursor.fetchone()["count"]
+
+    cursor.execute("SELECT COUNT(*) FROM patients")
+    total_patients = cursor.fetchone()["count"]
+
+    cursor.execute("SELECT COUNT(*) FROM appointments")
+    total_appointments = cursor.fetchone()["count"]
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "totalDoctors": total_doctors,
+        "totalPatients": total_patients,
+        "totalAppointments": total_appointments
+    }), 200
+
+@app.route('/api/admin/<int:adminId>', methods=['GET'])
+def getAdminProfile(adminId):
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        SELECT 
+            a.admin_id,
+            a.first_name,
+            a.last_name,
+            a.phone,
+            a.role_description,
+            TO_CHAR(a.date_of_birth, 'YYYY-MM-DD') AS date_of_birth,
+            u.email
+        FROM admin a
+        JOIN users u ON a.user_id = u.user_id
+        WHERE a.admin_id = %s
+    """, (adminId,))
+
+    admin = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not admin:
+        return jsonify({"error": "Admin not found"}), 404
+
+    return jsonify(admin), 200
+
+@app.route('/api/admin/<int:adminId>', methods=['PUT'])
+def updateAdminProfile(adminId):
+    data = request.get_json() or {}
+
+    fields = []
+    values = []
+
+    mapping = {
+        "first_name": "first_name",
+        "last_name": "last_name",
+        "phone": "phone",
+        "role_description": "role_description",
+        "date_of_birth": "date_of_birth"
+    }
+
+    for key, column in mapping.items():
+        if data.get(key) is not None:
+            fields.append(f"{column} = %s")
+            values.append(data[key])
+
+    if not fields:
+        return jsonify({"error": "No data to update"}), 400
+
+    values.append(adminId)
+
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute(f"""
+        UPDATE admin
+        SET {', '.join(fields)}
+        WHERE admin_id = %s
+        RETURNING admin_id
+    """, tuple(values))
+
+    updated = cursor.fetchone()
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    if not updated:
+        return jsonify({"error": "Admin not found"}), 404
+
+    return jsonify({"message": "Admin updated successfully"}), 200
+
+@app.route('/api/admin/doctors', methods=['GET'])
+def adminGetDoctors():
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        SELECT doctor_id, first_name, last_name, specialization, email, phone
+        FROM doctor
+        ORDER BY doctor_id DESC
+    """)
+
+    doctors = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return jsonify(doctors), 200
+
+@app.route('/api/admin/doctors', methods=['POST'])
+def adminCreateDoctor():
+    data = request.get_json() or {}
+
+    first_name = data.get("firstName")
+    last_name = data.get("lastName")
+    email = data.get("email")
+    password = data.get("password")
+    specialization = data.get("specialization")
+    phone = data.get("phone")
+    dob = data.get("dateOfBirth")
+
+    if not all([first_name, last_name, email, password]):
+        return jsonify({"error": "Missing fields"}), 400
+
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        INSERT INTO users (username, email, password_hash, role)
+        VALUES (%s,%s,%s,'DOCTOR')
+        RETURNING user_id
+    """, (email, email, password_hash))
+
+    user_id = cursor.fetchone()["user_id"]
+
+    cursor.execute("""
+        INSERT INTO doctor
+        (user_id, first_name, last_name, email, phone, specialization, date_of_birth)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        RETURNING doctor_id
+    """, (user_id, first_name, last_name, email, phone, specialization, dob))
+
+    doctor_id = cursor.fetchone()["doctor_id"]
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "doctorId": doctor_id,
+        "message": "Doctor created successfully"
+    }), 201
+
+@app.route('/api/admin/doctors/<int:doctorId>', methods=['PUT'])
+def adminUpdateDoctor(doctorId):
+    data = request.get_json() or {}
+
+    fields = []
+    values = []
+
+    # mapping بين frontend keys و DB columns
+    mapping = {
+        "firstName": "first_name",
+        "lastName": "last_name",
+        "email": "email",
+        "phone": "phone",
+        "specialization": "specialization",
+        "dateOfBirth": "date_of_birth"
+    }
+
+    for key, column in mapping.items():
+        if data.get(key) is not None:
+            fields.append(f"{column} = %s")
+            values.append(data[key])
+
+    if not fields:
+        return jsonify({"error": "No data to update"}), 400
+
+    values.append(doctorId)
+
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute(f"""
+        UPDATE doctor
+        SET {', '.join(fields)}
+        WHERE doctor_id = %s
+        RETURNING doctor_id
+    """, tuple(values))
+
+    updated = cursor.fetchone()
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    if not updated:
+        return jsonify({"error": "Doctor not found"}), 404
+
+    return jsonify({
+        "message": "Doctor updated successfully",
+        "doctorId": updated["doctor_id"]
+    }), 200
+
+@app.route('/api/admin/doctors/<int:doctorId>', methods=['DELETE'])
+def adminDeleteDoctor(doctorId):
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    # get user_id first
+    cursor.execute("""
+        SELECT user_id FROM doctor WHERE doctor_id = %s
+    """, (doctorId,))
+    row = cursor.fetchone()
+
+    if not row:
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Doctor not found"}), 404
+
+    user_id = row["user_id"]
+
+    cursor.execute("DELETE FROM doctor WHERE doctor_id = %s", (doctorId,))
+    cursor.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "message": "Doctor and user deleted successfully"
+    }), 200
+
+@app.route('/api/admin/billing', methods=['GET'])
+def adminGetBilling():
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        SELECT
+            b.billing_id,
+            b.amount,
+            b.status,
+            b.payment_method,
+            TO_CHAR(b.due_date, 'YYYY-MM-DD') AS due_date,
+            TO_CHAR(b.created_at, 'YYYY-MM-DD') AS created_at,
+            p.patient_id,
+            p.first_name,
+            p.last_name,
+            p.email
+        FROM billing b
+        JOIN patients p ON b.patient_id = p.patient_id
+        ORDER BY b.created_at DESC
+    """)
+
+    bills = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(bills), 200
+
+@app.route('/api/admin/billing/<int:billingId>', methods=['PUT'])
+def adminUpdateBilling(billingId):
+    data = request.get_json() or {}
+
+    fields = []
+    values = []
+
+    mapping = {
+        "status": "status",
+        "paymentMethod": "payment_method",
+        "dueDate": "due_date"
+    }
+
+    for key, column in mapping.items():
+        if data.get(key) is not None:
+            fields.append(f"{column} = %s")
+            values.append(data[key])
+
+    if not fields:
+        return jsonify({"error": "No data to update"}), 400
+
+    values.append(billingId)
+
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute(f"""
+        UPDATE billing
+        SET {', '.join(fields)}
+        WHERE billing_id = %s
+        RETURNING billing_id, status, payment_method
+    """, tuple(values))
+
+    updated = cursor.fetchone()
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    if not updated:
+        return jsonify({"error": "Billing record not found"}), 404
+
+    return jsonify({
+        "message": "Billing updated successfully",
+        "billing": updated
+    }), 200
+
+@app.route('/api/admin/billing/stats', methods=['GET'])
+def adminBillingStats():
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status = 'paid') AS paid,
+            COUNT(*) FILTER (WHERE status = 'pending') AS pending
+        FROM billing
+    """)
+
+    stats = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(stats), 200
 
 
 if __name__ == '__main__':

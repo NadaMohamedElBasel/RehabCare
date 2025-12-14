@@ -1,0 +1,29 @@
+.stats-grid {
+  display: flex;
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.stat-card {
+  background: #f4f6f8;
+  padding: 20px;
+  border-radius: 10px;
+  min-width: 180px;
+  text-align: center;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.data-table th,
+.data-table td {
+  border: 1px solid #ddd;
+  padding: 10px;
+}
+
+.data-table th {
+  background: #f0f0f0;
+}

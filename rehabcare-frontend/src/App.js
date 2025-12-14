@@ -20,7 +20,9 @@ import DoctorProfile from './components/doctor/DoctorProfile';
 import DoctorAppointments from './components/doctor/DoctorAppointments';
 import DoctorPrescriptions from './components/doctor/DoctorPrescriptions';
 
-
+// Admin Components
+import AdminLogin from "./components/admin/AdminLogin";
+import AdminDashboard from "./components/admin/AdminDashboard";
 
 // function App() {
 //   return (
@@ -89,6 +91,13 @@ function App() {
           {/* Doctor Tools */}
           <Route path="/doctor/:doctorId/appointments" element={<DoctorAppointments />} />
           <Route path="/doctor/:doctorId/prescriptions" element={<DoctorPrescriptions />} />
+          
+          {/* ---------------------- */}
+          {/* ADMIN ROUTES */}
+          {/* ---------------------- */}
+
+          <Route path="/admin-login" element={<AdminLogin />} />
+          <Route path="/admin-dashboard/:adminId" element={<AdminDashboard />} />
 
 
         </Routes>
