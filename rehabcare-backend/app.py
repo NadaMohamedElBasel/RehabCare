@@ -5,6 +5,8 @@ from flask_cors import CORS
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
+from datetime import date
+
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -823,83 +825,92 @@ def get_all_bills():
         if cursor: cursor.close()
         if conn: conn.close()
 
-@app.route('/api/doctor/register', methods=['POST'])
-def registerDoctor():
-    try:
-        data = request.get_json()
-        first_name = data.get('first_name') or data.get('firstName')
-        last_name = data.get('last_name') or data.get('lastName')
-        email = data.get('email')
-        password = data.get('password')
-        specialization = data.get('specialization')
-        phone = data.get('phone')
-        date_of_birth = data.get('date_of_birth') or data.get('dateOfBirth')
+# @app.route('/api/doctor/register', methods=['POST'])
+# def registerDoctor():
+#     try:
+#         data = request.get_json()
+#         first_name = data.get('first_name') or data.get('firstName')
+#         last_name = data.get('last_name') or data.get('lastName')
+#         email = data.get('email')
+#         password = data.get('password')
+#         specialization = data.get('specialization')
+#         phone = data.get('phone')
+#         date_of_birth = data.get('date_of_birth') or data.get('dateOfBirth')
 
-        if not all([first_name, last_name, email, password]):
-            return jsonify({"error": "Missing required fields"}), 400
+#         if not all([first_name, last_name, email, password]):
+#             return jsonify({"error": "Missing required fields"}), 400
 
-        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+#         password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-        conn = getDbConnection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+#         conn = getDbConnection()
+#         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-        cursor.execute("""
-            INSERT INTO doctor (first_name, last_name, email, phone, specialization, date_of_birth)
-            VALUES (%s,%s,%s,%s,%s,%s)
-            RETURNING doctor_id
-        """, (first_name, last_name, email, phone, specialization, date_of_birth))
+#         cursor.execute("""
+#             INSERT INTO doctor (first_name, last_name, email, phone, specialization, date_of_birth)
+#             VALUES (%s,%s,%s,%s,%s,%s)
+#             RETURNING doctor_id
+#         """, (first_name, last_name, email, phone, specialization, date_of_birth))
 
-        doctor = cursor.fetchone()
+#         doctor = cursor.fetchone()
 
-        conn.commit()
-        cursor.close()
-        conn.close()
+#         conn.commit()
+#         cursor.close()
+#         conn.close()
 
-        return jsonify({
-            "doctorId": doctor["doctor_id"],
-            "message": "Doctor registration successful"
-        }), 201
+#         return jsonify({
+#             "doctorId": doctor["doctor_id"],
+#             "message": "Doctor registration successful"
+#         }), 201
 
-    except Exception as e:
-        return jsonify({"error": f"Doctor registration failed: {str(e)}"}), 500
+#     except Exception as e:
+#         return jsonify({"error": f"Doctor registration failed: {str(e)}"}), 500
 
 
 @app.route('/api/doctor/login', methods=['POST'])
 def doctorLogin():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         email = data.get("email")
         password = data.get("password")
 
-        if not all([email, password]):
+        if not email or not password:
             return jsonify({"error": "Missing email or password"}), 400
 
         conn = getDbConnection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute("""
-            SELECT doctor_id, email, password_hash
-            FROM doctor
-            WHERE email = %s
-        """, (email,))
-        
+            SELECT
+                u.user_id,
+                u.email,
+                u.password_hash,
+                d.doctor_id
+            FROM users u
+            JOIN doctor d ON d.user_id = u.user_id
+            WHERE u.email = %s AND u.role = 'DOCTOR'
+        """, (email.strip(),))
+
         doctor = cursor.fetchone()
+        cursor.close()
+        conn.close()
 
         if not doctor:
             return jsonify({"error": "Invalid credentials"}), 401
 
-        stored_hash = doctor["password_hash"].encode("utf-8")
-
-        if not bcrypt.checkpw(password.encode("utf-8"), stored_hash):
+        if not bcrypt.checkpw(
+            password.encode("utf-8"),
+            doctor["password_hash"].encode("utf-8")
+        ):
             return jsonify({"error": "Invalid credentials"}), 401
 
         return jsonify({
             "doctorId": doctor["doctor_id"],
-            "message": "Login successful"
+            "userId": doctor["user_id"],
+            "message": "Doctor login successful"
         }), 200
 
     except Exception as e:
-        return jsonify({"error": f"Login failed: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/doctor/<int:doctorId>', methods=['GET', 'PUT'])
 def manageDoctorProfile(doctorId):
@@ -990,37 +1001,321 @@ def doctorAppointments(doctorId):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/doctor/<int:doctorId>/prescriptions', methods=['GET'])
+def doctorGetPrescriptions(doctorId):
+    try:
+        conn = getDbConnection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT
+                pr.prescription_id,
+                pr.patient_id,
+                pr.medication_name,
+                pr.dosage,
+                pr.instructions,
+                pr.issued_date,
+                pr.frequency,
+                pr.duration,
+                pr.status,
+                pr.type,
+                p.first_name AS patient_first_name,
+                p.last_name AS patient_last_name
+            FROM prescriptions pr
+            JOIN patients p ON pr.patient_id = p.patient_id
+            ORDER BY pr.issued_date DESC
+        """)
+
+        prescriptions = cursor.fetchall()
+        return jsonify(prescriptions), 200
+
+    except Exception as e:
+        print("PRESCRIPTIONS ERROR:", e)
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
 @app.route('/api/doctor/prescriptions', methods=['POST'])
 def doctorCreatePrescription():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
 
         patient_id = data.get("patientId")
-        doctor_id = data.get("doctorId")
         medication_name = data.get("medicationName")
         dosage = data.get("dosage")
         instructions = data.get("instructions")
-        type = data.get("type")  # medication / exercise / therapy
         frequency = data.get("frequency")
         duration = data.get("duration")
+        type = data.get("type")
+
+        if not all([patient_id, medication_name]):
+            return jsonify({"error": "Missing required fields"}), 400
 
         conn = getDbConnection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute("""
             INSERT INTO prescriptions
-            (patient_id, doctor_id, medication_name, dosage, instructions, type, frequency, duration, status)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'active')
+            (patient_id, medication_name, dosage, instructions,
+             frequency, duration, type, status, issued_date)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'active', CURRENT_DATE)
             RETURNING prescription_id
-        """, (patient_id, doctor_id, medication_name, dosage, instructions, type, frequency, duration))
+        """, (
+            patient_id,
+            medication_name,
+            dosage,
+            instructions,
+            frequency,
+            duration,
+            type
+        ))
 
         pres = cursor.fetchone()
         conn.commit()
 
-        return jsonify({"message": "Prescription created", "id": pres["prescription_id"]}), 201
+        return jsonify({
+            "message": "Prescription created successfully",
+            "prescriptionId": pres["prescription_id"]
+        }), 201
 
     except Exception as e:
+        print("CREATE PRESCRIPTION ERROR:", e)
         return jsonify({"error": str(e)}), 500
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+@app.route('/api/doctor/<int:doctorId>/patients', methods=['GET'])
+def doctorMyPatients(doctorId):
+    conn = None
+    cursor = None
+    try:
+        conn = getDbConnection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT DISTINCT
+                p.patient_id,
+                p.first_name,
+                p.last_name,
+                p.phone_number,
+                p.email
+            FROM appointments a
+            JOIN patients p ON a.patient_id = p.patient_id
+            WHERE a.doctor_id = %s
+            ORDER BY p.first_name, p.last_name
+        """, (doctorId,))
+
+        patients = cursor.fetchall()
+        return jsonify(patients), 200
+
+    except Exception as e:
+        print("MY PATIENTS ERROR:", e)
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.route("/api/doctor/<int:doctorId>/patients/<int:patientId>/medical-records",methods=["GET"])
+def getMedicalRecords_Doctor(doctorId, patientId):
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        SELECT 1
+        FROM appointments
+        WHERE doctor_id = %s AND patient_id = %s
+        LIMIT 1
+    """, (doctorId, patientId))
+
+    if not cursor.fetchone():
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Access denied"}), 403
+
+    cursor.execute("""
+        SELECT
+            record_id,
+            patient_id,
+            record_type,
+            record_data,
+            visit_date,
+            department,
+            created_at,
+            created_by
+        FROM medical_records
+        WHERE patient_id = %s
+        ORDER BY visit_date DESC, created_at DESC
+    """, (patientId,))
+
+    records = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return jsonify(records), 200
+
+@app.route('/api/doctor/<int:doctorId>/patients/<int:patientId>/medical-records', methods=['POST'])
+def createMedicalRecord_Doctor(doctorId, patientId):
+    data = request.get_json() or {}
+
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    #  Authorization + get appointment date
+    cursor.execute("""
+        SELECT appointment_date
+        FROM appointments
+        WHERE doctor_id = %s AND patient_id = %s
+        ORDER BY appointment_date DESC
+        LIMIT 1
+    """, (doctorId, patientId))
+
+    appointment = cursor.fetchone()
+    if not appointment:
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "No appointment found for this patient"}), 400
+
+    visit_date = appointment["appointment_date"]
+
+    #  Insert medical record
+    cursor.execute("""
+        INSERT INTO medical_records
+        (
+          patient_id,
+          record_type,
+          record_data,
+          visit_date,
+          department,
+          created_at,
+          created_by
+        )
+        VALUES (%s,%s,%s,%s,%s,NOW(),%s)
+        RETURNING record_id
+    """, (
+        patientId,
+        data.get("recordType"),
+        data.get("recordData"),
+        visit_date,                # 👈 from appointment
+        data.get("department"),
+        doctorId
+    ))
+
+    record = cursor.fetchone()
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "message": "Medical record created successfully",
+        "record_id": record["record_id"],
+        "visit_date": visit_date
+    }), 201
+
+@app.route('/api/doctor/<int:doctorId>/medical-records/<int:recordId>', methods=['PUT'])
+def updateMedicalRecord(doctorId, recordId):
+    data = request.get_json() or {}
+
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        SELECT mr.record_id
+        FROM medical_records mr
+        JOIN appointments a ON mr.patient_id = a.patient_id
+        WHERE mr.record_id = %s AND a.doctor_id = %s
+        LIMIT 1
+    """, (recordId, doctorId))
+
+    if not cursor.fetchone():
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Access denied"}), 403
+
+    cursor.execute("""
+        UPDATE medical_records
+        SET
+            record_type = %s,
+            record_data = %s,
+            department = %s
+        WHERE record_id = %s
+    """, (
+        data.get("recordType"),
+        data.get("recordData"),
+        data.get("department"),
+        recordId
+    ))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify({"message": "Medical record updated successfully"}), 200
+
+
+
+def seed_admin():
+    ADMIN_USER_ID = 100
+    ADMIN_EMAIL = "admin@gmail.com"
+    ADMIN_PASSWORD = "Admin1234"
+
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    # check if admin exists
+    cursor.execute("""
+        SELECT user_id FROM users WHERE user_id = %s
+    """, (ADMIN_USER_ID,))
+
+    if cursor.fetchone():
+        print(" Admin already exists")
+        cursor.close()
+        conn.close()
+        return
+
+    password_hash = bcrypt.hashpw(
+        ADMIN_PASSWORD.encode(),
+        bcrypt.gensalt(12)
+    ).decode()
+
+    # insert into users with FIXED ID = 100
+    cursor.execute("""
+        INSERT INTO users (user_id, username, email, password_hash, role)
+        VALUES (%s, %s, %s, %s, 'ADMIN')
+    """, (
+        ADMIN_USER_ID,
+        "admin",
+        ADMIN_EMAIL,
+        password_hash
+    ))
+
+    # insert into admin with SAME ID
+    cursor.execute("""
+        INSERT INTO admin
+        (admin_id, user_id, first_name, last_name, date_of_birth, phone, email, role_description)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+    """, (
+        ADMIN_USER_ID,
+        ADMIN_USER_ID,
+        "System",
+        "Admin",
+        "1990-01-01",
+        "01000000000",
+        ADMIN_EMAIL,
+        "Super Admin"
+    ))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    print(" Admin seeded with user_id = 100")
+
 
 @app.route('/api/admin/login', methods=['POST'])
 def adminLogin():
@@ -1028,8 +1323,8 @@ def adminLogin():
     email = data.get("email")
     password = data.get("password")
 
-    if not email or not password:
-        return jsonify({"error": "Missing credentials"}), 400
+    print("EMAIL FROM FRONT:", email)
+    print("PASSWORD FROM FRONT:", password)
 
     conn = getDbConnection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -1037,22 +1332,30 @@ def adminLogin():
     cursor.execute("""
         SELECT 
             u.user_id,
+            u.email,
             u.password_hash,
+            u.role,
             a.admin_id
         FROM users u
         JOIN admin a ON a.user_id = u.user_id
-        WHERE u.email = %s AND u.role = 'ADMIN'
+        WHERE u.email = %s
     """, (email,))
 
     admin = cursor.fetchone()
+    print("ADMIN FROM DB:", admin)
+
     cursor.close()
     conn.close()
 
     if not admin:
+        print("ADMIN NOT FOUND")
         return jsonify({"error": "Invalid credentials"}), 401
 
     if not bcrypt.checkpw(password.encode(), admin["password_hash"].encode()):
+        print("PASSWORD HASH MISMATCH")
         return jsonify({"error": "Invalid credentials"}), 401
+
+    print("LOGIN SUCCESS")
 
     return jsonify({
         "adminId": admin["admin_id"],
@@ -1163,7 +1466,7 @@ def adminGetDoctors():
     cursor.execute("""
         SELECT doctor_id, first_name, last_name, specialization, email, phone
         FROM doctor
-        ORDER BY doctor_id DESC
+        ORDER BY doctor_id ASC
     """)
 
     doctors = cursor.fetchall()
@@ -1171,6 +1474,7 @@ def adminGetDoctors():
     conn.close()
 
     return jsonify(doctors), 200
+
 
 @app.route('/api/admin/doctors', methods=['POST'])
 def adminCreateDoctor():
@@ -1182,7 +1486,15 @@ def adminCreateDoctor():
     password = data.get("password")
     specialization = data.get("specialization")
     phone = data.get("phone")
+
     dob = data.get("dateOfBirth")
+    if dob:
+        try:
+            dob = datetime.strptime(dob, "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({"error": "Invalid date format"}), 400
+    else:
+        dob = None
 
     if not all([first_name, last_name, email, password]):
         return jsonify({"error": "Missing fields"}), 400
@@ -1224,7 +1536,6 @@ def adminUpdateDoctor(doctorId):
     fields = []
     values = []
 
-    # mapping بين frontend keys و DB columns
     mapping = {
         "firstName": "first_name",
         "lastName": "last_name",
@@ -1235,7 +1546,20 @@ def adminUpdateDoctor(doctorId):
     }
 
     for key, column in mapping.items():
-        if data.get(key) is not None:
+        if key == "dateOfBirth":
+            dob = data.get(key)
+            if dob:
+                try:
+                    dob = datetime.strptime(dob, "%Y-%m-%d").date()
+                except ValueError:
+                    return jsonify({"error": "Invalid date format"}), 400
+            else:
+                dob = None
+
+            fields.append(f"{column} = %s")
+            values.append(dob)
+
+        elif data.get(key) is not None:
             fields.append(f"{column} = %s")
             values.append(data[key])
 
@@ -1395,4 +1719,5 @@ def adminBillingStats():
 
 
 if __name__ == '__main__':
+    # seed_admin()
     app.run(debug=True)
