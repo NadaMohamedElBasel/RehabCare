@@ -6,7 +6,13 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 from datetime import date
-
+import os
+from collections import deque
+try:
+    import psutil
+except Exception:
+    psutil = None
+from flask import g
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -17,7 +23,7 @@ CORS(app)
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "Admin@123", # change to yours
+    "password": "", # change to yours
     "host": "localhost",
     "port": "5432"
 }
@@ -382,6 +388,14 @@ def manageAppointments(patientId=None):
 
             # --- PATIENT APPOINTMENT FETCH (Original Logic) ---
             elif patientId is not None:
+                # Mark scheduled appointments that are now in the past as completed
+                cursor.execute("""
+                    UPDATE appointments
+                    SET status = 'completed'
+                    WHERE status = 'scheduled'
+                      AND (appointment_date + COALESCE(appointment_time, '23:59:59'::time)) < NOW()
+                """)
+                conn.commit()
                 cursor.execute(
                     "SELECT appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, status, doctor_id, notes FROM appointments WHERE patient_id = %s ORDER BY appointment_date DESC",
                     (patientId,)
@@ -1717,6 +1731,311 @@ def adminBillingStats():
 
     return jsonify(stats), 200
 
+@app.route('/api/admin/analytics/overview', methods=['GET'])
+def analyticsOverview():
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Total counts
+        cursor.execute("SELECT COUNT(*) AS total FROM patients")
+        total_patients = cursor.fetchone()['total']
+        
+        cursor.execute("SELECT COUNT(*) AS total FROM doctor")
+        total_doctors = cursor.fetchone()['total']
+        
+        cursor.execute("SELECT COUNT(*) AS total FROM appointments WHERE status = 'completed'")
+        completed_appointments = cursor.fetchone()['total']
+        
+        cursor.execute("SELECT COUNT(*) AS total FROM appointments WHERE status = 'scheduled'")
+        scheduled_appointments = cursor.fetchone()['total']
+        
+        # Financial metrics
+        cursor.execute("""
+            SELECT 
+                SUM(amount) AS total_revenue,
+                COUNT(*) FILTER (WHERE status = 'paid') AS paid_bills,
+                COUNT(*) FILTER (WHERE status = 'pending') AS pending_bills
+            FROM billing
+        """)
+        billing_data = cursor.fetchone()
+        
+        return jsonify({
+            'totalPatients': total_patients,
+            'totalDoctors': total_doctors,
+            'completedAppointments': completed_appointments,
+            'scheduledAppointments': scheduled_appointments,
+            'totalRevenue': float(billing_data['total_revenue'] or 0),
+            'paidBills': billing_data['paid_bills'],
+            'pendingBills': billing_data['pending_bills']
+        }), 200
+    
+    except Exception as e:
+        logging.exception("Analytics overview error")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/admin/analytics/appointments-by-month', methods=['GET'])
+def appointmentsByMonth():
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                DATE_TRUNC('month', appointment_date) AS month,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+                COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled
+            FROM appointments
+            WHERE appointment_date >= NOW() - INTERVAL '12 months'
+            GROUP BY DATE_TRUNC('month', appointment_date)
+            ORDER BY month DESC
+        """)
+        
+        data = cursor.fetchall()
+        formatted_data = [{
+            'month': item['month'].strftime('%Y-%m') if item['month'] else None,
+            'total': item['total'],
+            'completed': item['completed'],
+            'cancelled': item['cancelled']
+        } for item in data]
+        
+        return jsonify(formatted_data), 200
+    
+    except Exception as e:
+        logging.exception("Appointments by month error")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/admin/analytics/revenue-by-month', methods=['GET'])
+def revenueByMonth():
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                DATE_TRUNC('month', created_at) AS month,
+                SUM(amount) AS total_revenue,
+                COUNT(*) FILTER (WHERE status = 'paid') AS paid_count,
+                COUNT(*) FILTER (WHERE status = 'pending') AS pending_count
+            FROM billing
+            WHERE created_at >= NOW() - INTERVAL '12 months'
+            GROUP BY DATE_TRUNC('month', created_at)
+            ORDER BY month DESC
+        """)
+        
+        data = cursor.fetchall()
+        formatted_data = [{
+            'month': item['month'].strftime('%Y-%m') if item['month'] else None,
+            'revenue': float(item['total_revenue'] or 0),
+            'paidCount': item['paid_count'],
+            'pendingCount': item['pending_count']
+        } for item in data]
+        
+        return jsonify(formatted_data), 200
+    
+    except Exception as e:
+        logging.exception("Revenue by month error")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/admin/analytics/doctor-performance', methods=['GET'])
+def doctorPerformance():
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                d.doctor_id,
+                d.first_name,
+                d.last_name,
+                d.specialization,
+                COUNT(a.appointment_id) AS total_appointments,
+                COUNT(a.appointment_id) FILTER (WHERE a.status = 'completed') AS completed_appointments,
+                COUNT(a.appointment_id) FILTER (WHERE a.status = 'cancelled') AS cancelled_appointments
+            FROM doctor d
+            LEFT JOIN appointments a ON d.doctor_id = a.doctor_id
+            GROUP BY d.doctor_id, d.first_name, d.last_name, d.specialization
+            ORDER BY total_appointments DESC
+        """)
+        
+        data = cursor.fetchall()
+        return jsonify(data), 200
+    
+    except Exception as e:
+        logging.exception("Doctor performance error")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/admin/analytics/patient-statistics', methods=['GET'])
+def patientStatistics():
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                COUNT(*) AS total_patients,
+                COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM age(date_of_birth)) < 18) AS under_18,
+                COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM age(date_of_birth)) BETWEEN 18 AND 65) AS age_18_65,
+                COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM age(date_of_birth)) > 65) AS over_65,
+                COUNT(*) FILTER (WHERE gender = 'male') AS male_count,
+                COUNT(*) FILTER (WHERE gender = 'female') AS female_count
+            FROM patients
+        """)
+        
+        stats = cursor.fetchone()
+        return jsonify(stats), 200
+    
+    except Exception as e:
+        logging.exception("Patient statistics error")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+################################# SYSTEM PERFORMANCE ANALYTICS NOT YET WORKING ###################
+# # record process start
+# START_TIME = datetime.utcnow()
+
+# # keep simple request stats (last 100 requests)
+# REQUEST_DURATIONS = deque(maxlen=200)
+# TOTAL_REQUESTS = 0
+
+# # request timing middleware
+# @app.before_request
+# def _before_request_timing():
+#     g._req_start = datetime.utcnow()
+
+# @app.after_request
+# def _after_request_timing(response):
+#     global TOTAL_REQUESTS
+#     try:
+#         start = getattr(g, "_req_start", None)
+#         if start:
+#             dur = (datetime.utcnow() - start).total_seconds()
+#             REQUEST_DURATIONS.append(dur)
+#             TOTAL_REQUESTS += 1
+#     except Exception:
+#         pass
+#     return response
+
+# @app.route('/api/admin/analytics/system-performance', methods=['GET'])
+# def system_performance():
+#     conn = None
+#     cursor = None
+#     try:
+#         uptime_seconds = (datetime.utcnow() - START_TIME).total_seconds()
+#         avg_response_time = float(sum(REQUEST_DURATIONS) / len(REQUEST_DURATIONS)) if REQUEST_DURATIONS else 0.0
+#         recent_requests = len(REQUEST_DURATIONS)
+#         total_requests = TOTAL_REQUESTS
+
+#         cpu_percent = None
+#         mem_percent = None
+#         rss_bytes = None
+#         if psutil:
+#             try:
+#                 p = psutil.Process(os.getpid())
+#                 mem = p.memory_info()
+#                 rss_bytes = mem.rss
+#                 mem_percent = psutil.virtual_memory().percent
+#                 cpu_percent = psutil.cpu_percent(interval=0.1)
+#             except Exception:
+#                 cpu_percent = None
+#                 mem_percent = None
+
+#         # active DB connections for this database
+#         active_db_connections = None
+#         try:
+#             conn = getDbConnection()
+#             cursor = conn.cursor(cursor_factory=RealDictCursor)
+#             cursor.execute("SELECT COUNT(*) AS cnt FROM pg_stat_activity WHERE datname = current_database()")
+#             active_db_connections = int(cursor.fetchone()['cnt'] or 0)
+#         except Exception:
+#             active_db_connections = None
+
+#         return jsonify({
+#             "uptime_seconds": int(uptime_seconds),
+#             "uptime_readable": str(timedelta(seconds=int(uptime_seconds))),
+#             "avg_response_time_seconds": round(avg_response_time, 4),
+#             "recent_requests_sample": recent_requests,
+#             "total_requests": total_requests,
+#             "cpu_percent": cpu_percent,
+#             "memory_percent": mem_percent,
+#             "rss_bytes": rss_bytes,
+#             "active_db_connections": active_db_connections
+#         }), 200
+#     except Exception as e:
+#         logging.exception("Failed to get system performance")
+#         return jsonify({"error": str(e)}), 500
+#     finally:
+#         if cursor: cursor.close()
+#         if conn: conn.close()
+@app.route('/api/admin/analytics/export-all', methods=['GET'])
+def export_all_analytics():
+    """Generate comprehensive analytics report as JSON for frontend processing"""
+    conn = None
+    cursor = None
+    try:
+        conn = getDbConnection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Fetch all analytics data
+        cursor.execute("""
+            SELECT 
+                COUNT(*) AS total_patients
+            FROM patients
+        """)
+        total_patients = cursor.fetchone()['total_patients']
+        
+        cursor.execute("""
+            SELECT 
+                DATE_TRUNC('month', appointment_date) AS month,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+                COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled
+            FROM appointments
+            WHERE appointment_date >= NOW() - INTERVAL '12 months'
+            GROUP BY DATE_TRUNC('month', appointment_date)
+            ORDER BY month DESC
+        """)
+        appointments = cursor.fetchall()
+        
+        cursor.execute("""
+            SELECT 
+                DATE_TRUNC('month', created_at) AS month,
+                SUM(amount) AS total_revenue,
+                COUNT(*) FILTER (WHERE status = 'paid') AS paid_count
+            FROM billing
+            WHERE created_at >= NOW() - INTERVAL '12 months'
+            GROUP BY DATE_TRUNC('month', created_at)
+            ORDER BY month DESC
+        """)
+        revenue = cursor.fetchall()
+        
+        return jsonify({
+            'timestamp': datetime.now().isoformat(),
+            'total_patients': total_patients,
+            'appointments': appointments,
+            'revenue': revenue
+        }), 200
+    
+    except Exception as e:
+        logging.exception("Export analytics failed")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 if __name__ == '__main__':
     # seed_admin()
