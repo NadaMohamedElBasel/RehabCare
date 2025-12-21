@@ -8,6 +8,32 @@ from datetime import datetime, timedelta
 from datetime import date
 import os
 from collections import deque
+import io
+from pathlib import Path
+from uuid import uuid4
+import shutil
+import tempfile
+import zipfile
+# optional libs for model inspection
+try:
+    import h5py
+except Exception:
+    h5py = None
+
+try:
+    import tensorflow as tf
+    from tensorflow import keras
+    print("✓ TensorFlow loaded successfully")
+except Exception as e:
+    print(f"✗ TensorFlow import failed: {e}")
+    import traceback
+    traceback.print_exc()
+    tf = None
+    keras = None
+
+import numpy as np
+from PIL import Image
+from flask import send_from_directory, url_for
 try:
     import psutil
 except Exception:
@@ -2037,6 +2063,370 @@ def export_all_analytics():
         if cursor: cursor.close()
         if conn: conn.close()
 
+# ---------------- CDSS / Model config ----------------
+logger = logging.getLogger(__name__)
+
+MODEL_PATH = Path(__file__).parent / "final_binary.keras"   # put final_binary.keras here
+IMG_SIZE = 224
+BACKBONE_CANDIDATES = ["EfficientNetB0", "MobileNetV3Large", "EfficientNetV2B0"]
+ALLOWED_EXT = {"png", "jpg", "jpeg"}
+UPLOAD_FOLDER = Path(__file__).parent / "uploads"
+UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
+
+# ---------------- Custom loss (if needed) ----------------
+if keras is not None:
+    class SparseCategoricalFocalLoss(keras.losses.Loss):
+        def __init__(self, gamma=2.0, alpha=None, from_logits=False, reduction='sum_over_batch_size', name='sc_focal'):
+            super().__init__(reduction=reduction, name=name)
+            self.gamma = gamma
+            self.alpha = alpha
+            self.from_logits = from_logits
+
+        def call(self, y_true, y_pred):
+            y_true = tf.cast(y_true, tf.int32)
+            if self.from_logits:
+                y_pred = tf.nn.softmax(y_pred, axis=-1)
+            else:
+                y_pred = tf.clip_by_value(y_pred, 1e-9, 1.0)
+            y_true_onehot = tf.one_hot(y_true, depth=tf.shape(y_pred)[-1])
+            p_t = tf.reduce_sum(y_true_onehot * y_pred, axis=-1)
+            ce = -tf.reduce_sum(y_true_onehot * tf.math.log(y_pred), axis=-1)
+            if self.alpha is not None:
+                alpha_tensor = tf.convert_to_tensor(self.alpha, dtype=tf.float32)
+                alpha_factor = tf.reduce_sum(y_true_onehot * alpha_tensor, axis=-1)
+                ce = alpha_factor * ce
+            modulating = tf.pow(1.0 - p_t, self.gamma)
+            loss = modulating * ce
+            return tf.reduce_mean(loss)
+
+    # ---------------- Model build helper ----------------
+    def build_model(img_size, num_classes=2, backbone='EfficientNetB0', dropout=0.4):
+        inputs = keras.Input(shape=(img_size, img_size, 3), name="input_layer")
+        x = inputs
+        backbone_lower = backbone.lower()
+        if backbone_lower.startswith('mobilenet'):
+            base = tf.keras.applications.MobileNetV3Large(include_top=False, weights='imagenet', input_tensor=x)
+        elif backbone_lower.startswith('efficientnetv2'):
+            base = tf.keras.applications.EfficientNetV2B0(include_top=False, weights='imagenet', input_tensor=x)
+        else:
+            base = tf.keras.applications.EfficientNetB0(include_top=False, weights='imagenet', input_tensor=x)
+        base.trainable = False
+        y = base.output
+        y = keras.layers.GlobalAveragePooling2D()(y)
+        y = keras.layers.BatchNormalization()(y)
+        y = keras.layers.Dropout(dropout)(y)
+        y = keras.layers.Dense(256, activation='relu')(y)
+        y = keras.layers.Dropout(dropout * 0.5)(y)
+        outputs = keras.layers.Dense(num_classes, activation='softmax', dtype='float32')(y)
+        model = keras.Model(inputs=inputs, outputs=outputs)
+        return model
+
+    # ---------------- Robust model loader ----------------
+    from typing import Optional
+
+    def try_load_full_model(path: Path) -> Optional[keras.Model]:
+        if not path.exists():
+            logger.error("Model file not found: %s", path)
+            return None
+        try:
+            logger.info("Attempting keras.models.load_model (normal)...")
+            m = keras.models.load_model(str(path), custom_objects={"SparseCategoricalFocalLoss": SparseCategoricalFocalLoss})
+            logger.info("Loaded full model (normal).")
+            return m
+        except Exception as e:
+            logger.warning("Normal load failed: %s", e)
+
+        try:
+            if hasattr(keras, "config") and hasattr(keras.config, "enable_unsafe_deserialization"):
+                logger.info("Trying unsafe deserialization and retrying load_model...")
+                keras.config.enable_unsafe_deserialization()
+                m = keras.models.load_model(str(path), custom_objects={"SparseCategoricalFocalLoss": SparseCategoricalFocalLoss})
+                logger.info("Loaded full model (unsafe).")
+                return m
+            else:
+                logger.info("Unsafe deserialization not available; skipping.")
+        except Exception as e:
+            logger.warning("Unsafe deserialization attempt failed: %s", e)
+        return None
+
+    def infer_num_classes_from_h5(path: str):
+        if h5py is None:
+            return None
+        try:
+            with h5py.File(path, 'r') as hf:
+                candidate_dims = []
+                def visitor(name, node):
+                    if isinstance(node, h5py.Dataset):
+                        n = name.lower()
+                        if 'kernel' in n or 'weights' in n or 'dense' in n:
+                            shape = getattr(node, 'shape', None)
+                            if shape and len(shape) >= 2:
+                                candidate_dims.append(shape[-1])
+                hf.visititems(visitor)
+                candidate_dims = [int(c) for c in candidate_dims if int(c) > 1]
+                if candidate_dims:
+                    candidate_dims.sort()
+                    guessed = candidate_dims[0]
+                    logger.info("Inferred num_classes=%s from h5 inspection", guessed)
+                    return guessed
+        except Exception as e:
+            logger.warning("h5 inspection failed: %s", e)
+        return None
+
+    def extract_possible_h5_from_zip(path: str):
+        if not zipfile.is_zipfile(path):
+            return []
+        results = []
+        try:
+            with zipfile.ZipFile(path, 'r') as z:
+                for name in z.namelist():
+                    if name.lower().endswith(('.h5', '.hdf5')):
+                        tfobj = tempfile.NamedTemporaryFile(delete=False, suffix=Path(name).suffix)
+                        tfobj.close()
+                        with z.open(name) as src, open(tfobj.name, 'wb') as dst:
+                            shutil.copyfileobj(src, dst)
+                        results.append(tfobj.name)
+                if any(n.startswith('variables/') for n in z.namelist()):
+                    td = tempfile.mkdtemp()
+                    z.extractall(td)
+                    ckpt = tf.train.latest_checkpoint(td)
+                    if ckpt:
+                        results.append(ckpt)
+        except Exception as e:
+            logger.warning("zip inspection failed: %s", e)
+        return results
+
+    def try_restore_weights(path: Path):
+        weight_files = [str(path)]
+        weight_files += extract_possible_h5_from_zip(str(path))
+
+        inferred_classes = None
+        for wf in weight_files:
+            if wf and wf.lower().endswith(('.h5', '.hdf5')):
+                inferred = infer_num_classes_from_h5(wf)
+                if inferred:
+                    inferred_classes = inferred
+                    break
+
+        num_classes_candidates = [2] if inferred_classes is None else [inferred_classes]
+        num_classes_candidates += [2, 3, 4, 5]
+        seen = set()
+        num_classes_candidates = [x for x in num_classes_candidates if not (x in seen or seen.add(x))]
+
+        for num_classes in num_classes_candidates:
+            for backbone in BACKBONE_CANDIDATES:
+                try:
+                    logger.info("Trying backbone=%s num_classes=%s", backbone, num_classes)
+                    model = build_model(IMG_SIZE, num_classes=num_classes, backbone=backbone)
+                    for wf in weight_files:
+                        try:
+                            logger.info("Attempting model.load_weights(%s)", wf)
+                            model.load_weights(wf)
+                            logger.info("Loaded weights into constructed model (backbone=%s classes=%s)", backbone, num_classes)
+                            return model
+                        except Exception as e:
+                            logger.warning("load_weights(%s) failed: %s", wf, e)
+                except Exception as e:
+                    logger.warning("Failed building/loading for backbone %s classes %s: %s", backbone, num_classes, e)
+        return None
+
+    def load_model_aggressive(path: Path):
+        if not path.exists():
+            return None, "model file not found"
+
+        m = try_load_full_model(path)
+        if m is not None:
+            return m, None
+
+        try:
+            m2 = try_restore_weights(path)
+            if m2 is not None:
+                return m2, None
+        except Exception as e:
+            logger.exception("try_restore_weights raised exception")
+
+        try:
+            if path.is_dir():
+                try:
+                    sm = tf.keras.models.load_model(str(path))
+                    return sm, None
+                except Exception as e:
+                    logger.warning("tf.saved_model.load attempt failed: %s", e)
+        except Exception:
+            pass
+
+        return None, "all model loading attempts failed"
+
+    MODEL = None
+    MODEL_READY = False
+    preprocess_fn = None
+    NUM_OUT = None
+    CLASS_MAP = {}
+
+    def initialize_model():
+        global MODEL, MODEL_READY, preprocess_fn, NUM_OUT, CLASS_MAP
+        m, err = load_model_aggressive(MODEL_PATH)
+        if m is None:
+            logger.error("Model initialization failed: %s", err)
+            MODEL = None
+            MODEL_READY = False
+            preprocess_fn = None
+            NUM_OUT = None
+            CLASS_MAP = {}
+            return
+
+        MODEL = m
+        MODEL_READY = True
+        contains_lambda = any(isinstance(layer, keras.layers.Lambda) for layer in MODEL.layers)
+        if contains_lambda:
+            preprocess_fn = None
+            logger.info("Model contains Lambda layer(s); skipping external preprocess.")
+        else:
+            preprocess_fn = None
+            try:
+                preprocess_fn = tf.keras.applications.efficientnet.preprocess_input
+                logger.info("Using EfficientNet preprocess_input.")
+            except Exception:
+                try:
+                    preprocess_fn = tf.keras.applications.efficientnet_v2.preprocess_input
+                    logger.info("Using EfficientNetV2 preprocess_input.")
+                except Exception:
+                    try:
+                        preprocess_fn = tf.keras.applications.mobilenet_v3.preprocess_input
+                        logger.info("Using MobileNetV3 preprocess_input.")
+                    except Exception:
+                        preprocess_fn = None
+                        logger.info("No preprocess_input available; will pass raw arrays.")
+
+        try:
+            NUM_OUT = MODEL.output_shape[-1] if hasattr(MODEL, "output_shape") else None
+        except Exception:
+            NUM_OUT = None
+        try:
+            if NUM_OUT == 2 or NUM_OUT is None:
+                CLASS_MAP = {0: "Healthy (neg)", 1: "Osteoarthritis - OA (pos)"}
+            else:
+                CLASS_MAP = {i: f"Class {i}" for i in range(NUM_OUT)}
+        except Exception:
+            CLASS_MAP = {}
+        logger.info("Model loaded. NUM_OUT=%s", NUM_OUT)
+
+    # ---------------- Preprocessing & prediction helpers ----------------
+    def allowed_file(filename: str):
+        return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
+
+    def preprocess_pil_image(img: Image.Image, img_size=IMG_SIZE):
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img = img.resize((img_size, img_size), Image.LANCZOS)
+        arr = np.asarray(img).astype(np.float32)
+        if preprocess_fn is not None:
+            arr = preprocess_fn(arr)
+        arr = np.expand_dims(arr, axis=0)
+        return arr
+
+    def predict_from_array(arr: np.ndarray):
+        preds = MODEL.predict(arr, verbose=0)
+        preds = np.asarray(preds)
+        if preds.ndim == 2 and (preds.min() < 0 or preds.max() > 1.0001 or not np.isclose(preds.sum(axis=1)[0], 1.0, atol=1e-3)):
+            exp = np.exp(preds - np.max(preds, axis=1, keepdims=True))
+            preds = exp / np.sum(exp, axis=1, keepdims=True)
+        probs = preds[0]
+        idx = int(np.argmax(probs))
+        conf = float(probs[idx])
+        label = CLASS_MAP.get(idx, str(idx))
+        return label, conf, probs.tolist()
+
+    # ---------------- CDSS endpoints ----------------
+    @app.route("/api/health", methods=["GET"])
+    def health():
+        return jsonify({"status": "ok", "model_ready": bool(MODEL_READY)})
+
+    @app.route("/api/model_status", methods=["GET"])
+    def model_status():
+        return jsonify({
+            "model_path": str(MODEL_PATH),
+            "model_ready": bool(MODEL_READY),
+            "num_output_classes": NUM_OUT,
+            "class_map": CLASS_MAP
+        }), 200
+
+    @app.route("/api/predict", methods=["POST"])
+    def api_predict():
+        if MODEL is None or not MODEL_READY:
+            return jsonify({"error": "Model not loaded. Check /api/model_status for details."}), 503
+
+        if "file" not in request.files:
+            return jsonify({"error": "no file part"}), 400
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"error": "no selected file"}), 400
+        if not allowed_file(file.filename):
+            return jsonify({"error": f"allowed file types: {', '.join(ALLOWED_EXT)}"}), 400
+
+        ext = file.filename.rsplit(".", 1)[1].lower()
+        filename = f"{uuid4().hex}.{ext}"
+        save_path = UPLOAD_FOLDER / filename
+
+        file_bytes = file.read()
+        try:
+            img = Image.open(io.BytesIO(file_bytes))
+            img.verify()
+        except Exception as e:
+            logger.warning("Uploaded file not valid image: %s", e)
+            return jsonify({"error": "uploaded file is not a valid image"}), 400
+
+        try:
+            img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+        except Exception as e:
+            logger.exception("Failed to reopen image")
+            return jsonify({"error": "failed to process uploaded image"}), 400
+
+        try:
+            img.save(save_path)
+        except Exception as e:
+            logger.exception("Failed to save uploaded image")
+            save_path = None
+
+        arr = preprocess_pil_image(img, IMG_SIZE)
+        try:
+            label, conf, probs = predict_from_array(arr)
+        except Exception as e:
+            logger.exception("Model prediction failed")
+            return jsonify({"error": f"Model prediction error: {str(e)}"}), 500
+
+        try:
+            image_url = url_for("uploaded_file", filename=filename, _external=True) if save_path else None
+        except Exception:
+            image_url = f"/uploads/{filename}" if save_path else None
+
+        return jsonify({
+            "label": label,
+            "confidence": float(conf),
+            "probs": [float(p) for p in probs],
+            "filename": filename if save_path else None,
+            "image_url": image_url
+        }), 200
+
+    @app.route("/uploads/<path:filename>")
+    def uploaded_file(filename):
+        return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+
+    # Initialize model on startup
+    initialize_model()
+#################################################################
 if __name__ == '__main__':
     # seed_admin()
+    print("=" * 60)
+    print("CDSS MODEL STATUS:")
+    print(f"  Model path: {MODEL_PATH}")
+    print(f"  Model exists: {MODEL_PATH.exists()}")
+    if keras is not None:
+        print(f"  Model ready: {MODEL_READY}")
+        print(f"  Num classes: {NUM_OUT}")
+        print(f"  Class map: {CLASS_MAP}")
+    else:
+        print("  TensorFlow/Keras not available")
+    print("=" * 60)
     app.run(debug=True)
