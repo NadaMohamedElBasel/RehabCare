@@ -21,9 +21,14 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "start:dicom": "npm --prefix Dicom start",
+    "start:all": "concurrently -n frontend,dicom -c blue,magenta \"npm start\" \"npm --prefix Dicom start\"",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0"
   },
   "eslintConfig": {
     "extends": [

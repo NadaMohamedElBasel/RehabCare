@@ -19,7 +19,15 @@ describe('ToolControls', () => {
   ];
   
   // Mock viewerRef
-  const mockViewerRef = { current: { downloadImage: jest.fn(), setWindowLevel: jest.fn() } };
+  const mockViewerRef = {
+    current: {
+      downloadImage: jest.fn(),
+      setWindowLevel: jest.fn(),
+      captureImageDataUrl: jest.fn(),
+      getAllAnnotations: jest.fn(),
+      removeAllAnnotations: jest.fn(),
+    },
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();

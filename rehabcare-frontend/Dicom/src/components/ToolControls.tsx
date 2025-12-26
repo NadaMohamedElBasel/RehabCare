@@ -22,13 +22,26 @@ interface ToolControlsProps {
   viewMode?: 'stack' | 'mpr';
   onViewModeChange?: (mode: 'stack' | 'mpr') => void;
   mprEnabled?: boolean;
-  mprActiveView?: 'axial' | 'sagittal' | 'coronal' | '3d' | 'all';
-  onMprActiveViewChange?: (view: 'axial' | 'sagittal' | 'coronal' | '3d' | 'all') => void;
+  mprActiveView?: 'axial' | 'sagittal' | 'coronal' | 'all';
+  onMprActiveViewChange?: (view: 'axial' | 'sagittal' | 'coronal' | 'all') => void;
 
   // Doctor notes (stack-only feature)
   notes?: Array<{ id: string; text: string; createdAt: string }>;
   onAddNote?: (text: string) => void;
   onClearNotes?: () => void;
+
+  // Save/export session (annotations + measurements + notes)
+  onDownloadSessionJson?: () => void | Promise<void>;
+  onClearAnnotations?: () => void;
+
+  // Optional integration into patient medical records
+  doctorIdValue?: string;
+  onDoctorIdChange?: (value: string) => void;
+  patientIdValue?: string;
+  onPatientIdChange?: (value: string) => void;
+  departmentValue?: string;
+  onDepartmentChange?: (value: string) => void;
+  onSaveToPatientRecord?: () => void | Promise<void>;
 }
 
 interface Tool {
@@ -87,6 +100,15 @@ const ToolControls = ({
   notes = [],
   onAddNote,
   onClearNotes,
+  onDownloadSessionJson,
+  onClearAnnotations,
+  doctorIdValue,
+  onDoctorIdChange,
+  patientIdValue,
+  onPatientIdChange,
+  departmentValue,
+  onDepartmentChange,
+  onSaveToPatientRecord,
 }: ToolControlsProps) => {
   // useToolManager exposes the Cornerstone tool group state & setter (handleToolClick)
   const { activeTool, handleToolClick } = useToolManager(toolGroupId ?? TOOLGROUP_ID);
@@ -124,14 +146,13 @@ const ToolControls = ({
             {viewMode === 'mpr' && onMprActiveViewChange && (
               <select
                 value={mprActiveView}
-                onChange={(e) => onMprActiveViewChange(e.target.value as 'axial' | 'sagittal' | 'coronal' | '3d' | 'all')}
+                onChange={(e) => onMprActiveViewChange(e.target.value as 'axial' | 'sagittal' | 'coronal' | 'all')}
                 className="w-full px-3 py-2 text-sm rounded-md bg-white border border-gray-300 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
                 title="Choose which MPR plane the tools will affect"
               >
                 <option value="axial">Apply tools to: Axial</option>
                 <option value="sagittal">Apply tools to: Sagittal</option>
                 <option value="coronal">Apply tools to: Coronal</option>
-                <option value="3d">Apply tools to: 3D</option>
                 <option value="all">All views (sync WL/Zoom/Pan)</option>
               </select>
             )}
@@ -276,6 +297,68 @@ const ToolControls = ({
           </>
         )}
       </>
+
+      {/* Save/export + integration */}
+      <div className="pt-4 space-y-3">
+        <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Save / Export</div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onDownloadSessionJson}
+            disabled={!onDownloadSessionJson}
+            className="flex-1 px-3 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 disabled:opacity-60"
+            title="Download annotations + measurements + notes as JSON"
+          >
+            Download JSON
+          </button>
+          <button
+            type="button"
+            onClick={onClearAnnotations}
+            disabled={!onClearAnnotations}
+            className="flex-1 px-3 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 disabled:opacity-60"
+            title="Clear all annotations and measurements"
+          >
+            Clear Marks
+          </button>
+        </div>
+
+        {onSaveToPatientRecord && (
+          <div className="space-y-2">
+            <div className="text-xs text-gray-600 dark:text-gray-400">
+              Save the annotated image + notes into a patient medical record.
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              <input
+                value={doctorIdValue ?? ''}
+                onChange={(e) => onDoctorIdChange?.(e.target.value)}
+                placeholder="Doctor ID"
+                className="w-full px-3 py-2 text-sm rounded-md bg-white border border-gray-300 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
+              />
+              <input
+                value={patientIdValue ?? ''}
+                onChange={(e) => onPatientIdChange?.(e.target.value)}
+                placeholder="Patient ID"
+                className="w-full px-3 py-2 text-sm rounded-md bg-white border border-gray-300 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
+              />
+              <input
+                value={departmentValue ?? ''}
+                onChange={(e) => onDepartmentChange?.(e.target.value)}
+                placeholder="Department (e.g., Radiology)"
+                className="w-full px-3 py-2 text-sm rounded-md bg-white border border-gray-300 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={onSaveToPatientRecord}
+              className="w-full px-3 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
+              title="Save to patient medical records"
+            >
+              Save To Patient Record
+            </button>
+          </div>
+        )}
+      </div>
       <div className="flex gap-2">
         <div className="group relative flex-1">
           <button

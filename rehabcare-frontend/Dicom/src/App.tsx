@@ -26,18 +26,38 @@ const App = () => {
   const [metadata, setMetadata] = useState<Record<string, string>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewMode, setViewMode] = useState<'stack' | 'mpr'>('stack');
-  const [mprActiveView, setMprActiveView] = useState<'axial' | 'sagittal' | 'coronal' | '3d' | 'all'>('axial');
+  const [mprActiveView, setMprActiveView] = useState<'axial' | 'sagittal' | 'coronal' | 'all'>('axial');
   const [wlCenter, setWlCenter] = useState<number>(0);
   const [wlWidth, setWlWidth] = useState<number>(1);
   const [wlMin, setWlMin] = useState<number>(0);
   const [wlMax, setWlMax] = useState<number>(1);
+  const [sharpen, setSharpen] = useState<number>(0); // 0..3
+  const [smooth, setSmooth] = useState<number>(0); // 0..3
+  const [denoise, setDenoise] = useState<number>(0); // 0..3
   const [doctorNotes, setDoctorNotes] = useState<Array<{ id: string; text: string; createdAt: string }>>([]);
+  const [integrationDoctorId, setIntegrationDoctorId] = useState<string>('');
+  const [integrationPatientId, setIntegrationPatientId] = useState<string>('');
+  const [integrationDepartment, setIntegrationDepartment] = useState<string>('Radiology');
   const viewerRef = useRef<ViewerRef>(null);
   const objectUrlsRef = useRef<string[]>([]);
   const { isDarkMode, toggleDarkMode } = useDarkMode();
 
   useEffect(() => {
     initCornerstone();
+  }, []);
+
+  useEffect(() => {
+    // The standalone viewer can be embedded via iframe.
+    // Since localStorage is per-origin, read doctorId/patientId from query params.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const d = params.get('doctorId');
+      const p = params.get('patientId');
+      if (d) setIntegrationDoctorId(d);
+      if (p) setIntegrationPatientId(p);
+    } catch {
+      // no-op
+    }
   }, []);
 
   const handleUpload = async (files: File[]) => {
@@ -131,6 +151,9 @@ const App = () => {
     setViewMode('stack');
     setMprActiveView('axial');
     setDoctorNotes([]);
+    setSharpen(0);
+    setSmooth(0);
+    setDenoise(0);
 
     // Clear the IndexedDB storage
     try {
@@ -146,12 +169,81 @@ const App = () => {
 
   const isMprPossible = (imageIds?.length ?? 0) >= 2;
 
-  const activeToolGroupId =
-    viewMode !== 'mpr'
-      ? 'defaultToolGroup'
-      : mprActiveView === '3d'
-        ? 'mpr3dToolGroup'
-        : 'mprToolGroup';
+  const activeToolGroupId = viewMode === 'stack' ? 'defaultToolGroup' : 'mprToolGroup';
+
+  const downloadSessionJson = async () => {
+    const annotations = viewerRef.current?.getAllAnnotations?.() ?? [];
+    const session = {
+      kind: 'dicom-viewer-session',
+      createdAt: new Date().toISOString(),
+      imageCount: imageIds?.length ?? 0,
+      viewMode,
+      mprActiveView,
+      windowLevel: { center: wlCenter, width: wlWidth, min: wlMin, max: wlMax },
+      enhancements: { sharpen, smooth, denoise },
+      notes: doctorNotes,
+      annotations,
+    };
+
+    const blob = new Blob([JSON.stringify(session, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dicom-session-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const saveSessionToPatientRecord = async () => {
+    const doctorIdNum = Number.parseInt(integrationDoctorId, 10);
+    const patientIdNum = Number.parseInt(integrationPatientId, 10);
+    if (!Number.isFinite(doctorIdNum) || !Number.isFinite(patientIdNum)) {
+      alert('Please enter valid Doctor ID and Patient ID.');
+      return;
+    }
+    if (!imageIds?.length) {
+      alert('Upload a DICOM first.');
+      return;
+    }
+
+    const annotations = viewerRef.current?.getAllAnnotations?.() ?? [];
+    const screenshotDataUrl = await viewerRef.current?.captureImageDataUrl?.('image/jpeg');
+
+    const recordPayload = {
+      kind: 'dicom-annotation',
+      createdAt: new Date().toISOString(),
+      imageCount: imageIds.length,
+      viewMode,
+      mprActiveView,
+      windowLevel: { center: wlCenter, width: wlWidth, min: wlMin, max: wlMax },
+      enhancements: { sharpen, smooth, denoise },
+      notes: doctorNotes,
+      annotations,
+      screenshotDataUrl: screenshotDataUrl ?? null,
+    };
+
+    try {
+      const res = await fetch(`http://localhost:5000/api/doctor/${doctorIdNum}/patients/${patientIdNum}/medical-records`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recordType: 'DICOM_VIEWER',
+          recordData: JSON.stringify(recordPayload),
+          department: integrationDepartment || 'Radiology',
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+
+      alert('Saved annotated image + notes to patient medical records.');
+    } catch (e) {
+      console.error('Failed to save DICOM viewer session to medical records:', e);
+      alert('Failed to save into medical records. Make sure the backend is running and that this doctor has an appointment with this patient.');
+    }
+  };
 
   const addDoctorNote = (text: string) => {
     const id = (globalThis.crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -221,6 +313,9 @@ const App = () => {
                   onViewModeChange={(mode) => {
                     if (mode === 'mpr' && !isMprPossible) return;
                     setViewMode(mode);
+                    if (mode !== 'mpr') {
+                      setMprActiveView('axial');
+                    }
                   }}
                   mprEnabled={isMprPossible}
                   mprActiveView={mprActiveView}
@@ -230,6 +325,17 @@ const App = () => {
                   notes={doctorNotes}
                   onAddNote={viewMode === 'stack' ? addDoctorNote : undefined}
                   onClearNotes={viewMode === 'stack' ? clearDoctorNotes : undefined}
+
+                  // Save/export
+                  onDownloadSessionJson={downloadSessionJson}
+                  doctorIdValue={integrationDoctorId}
+                  onDoctorIdChange={setIntegrationDoctorId}
+                  patientIdValue={integrationPatientId}
+                  onPatientIdChange={setIntegrationPatientId}
+                  departmentValue={integrationDepartment}
+                  onDepartmentChange={setIntegrationDepartment}
+                  onSaveToPatientRecord={saveSessionToPatientRecord}
+                  onClearAnnotations={() => viewerRef.current?.removeAllAnnotations?.()}
                 />
 
                 {/* Leveling (Window/Level) */}
@@ -297,6 +403,77 @@ const App = () => {
                   >
                     Reset Leveling
                   </button>
+
+                  {/* Stack-only enhancements */}
+                  {viewMode === 'stack' && (
+                    <div className="pt-5 space-y-4">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Enhancements (Stack)</div>
+
+                      {/* Sharpen */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                          <span>Sharpen</span>
+                          <span>{sharpen.toFixed(2)}x</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={300}
+                          step={1}
+                          value={Math.round(sharpen * 100)}
+                          onChange={(e) => setSharpen(Number(e.target.value) / 100)}
+                          className="w-full"
+                        />
+                      </div>
+
+                      {/* Smoothing */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                          <span>Smoothing (Blur)</span>
+                          <span>{smooth.toFixed(2)}x</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={300}
+                          step={1}
+                          value={Math.round(smooth * 100)}
+                          onChange={(e) => setSmooth(Number(e.target.value) / 100)}
+                          className="w-full"
+                        />
+                      </div>
+
+                      {/* Noise reduction */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                          <span>Noise Reduction</span>
+                          <span>{denoise.toFixed(2)}x</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={300}
+                          step={1}
+                          value={Math.round(denoise * 100)}
+                          onChange={(e) => setDenoise(Number(e.target.value) / 100)}
+                          className="w-full"
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSharpen(0);
+                          setSmooth(0);
+                          setDenoise(0);
+                        }}
+                        className="w-full px-3 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                        title="Reset enhancements"
+                      >
+                        Reset Enhancements
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -346,6 +523,7 @@ const App = () => {
                 mode={viewMode}
                 ref={viewerRef}
                 mprInteractionTarget={viewMode === 'mpr' ? mprActiveView : undefined}
+                enhancements={{ sharpen, smooth, denoise }}
               />
               {isFullscreen && (
                 <button

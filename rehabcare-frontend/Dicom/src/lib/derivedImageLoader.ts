@@ -1,4 +1,4 @@
-import { imageLoader } from '@cornerstonejs/core';
+import { imageLoader, metaData } from '@cornerstonejs/core';
 
 export type EnhancementMode = 'none' | 'sharpen' | 'smooth' | 'denoise';
 
@@ -11,8 +11,12 @@ export type EnhancementConfig = {
 type AnyImage = any;
 
 let derivedLoaderInitialized = false;
+let derivedMetaDataProviderInitialized = false;
 
 const derivedImageStore = new Map<string, AnyImage>();
+const derivedImageKeyOrder: string[] = [];
+const DERIVED_IMAGE_STORE_MAX = 400;
+const DERIVED_IMAGE_STORE_PRUNE_BATCH = 80;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -22,12 +26,117 @@ function clamp01(value: number) {
   return clamp(value, 0, 1);
 }
 
+function clamp03(value: number) {
+  return clamp(value, 0, 3);
+}
+
 function makeDerivedImageId(srcId: string, mode: EnhancementMode, strength: number) {
   // Deterministic IDs so slider updates don't leak memory by generating infinite derived IDs.
   // Quantize strength so "nearby" slider values still map cleanly.
-  const s = Math.round(clamp01(strength) * 1000);
+  // Quantize to 0..300 (steps of 0.01) to support up to 3 passes.
+  const s = Math.round(clamp03(strength) * 100);
   const encodedSrc = encodeURIComponent(srcId);
   return `derived:${mode}:${s}:${encodedSrc}`;
+}
+
+function storeDerivedImage(imageId: string, image: AnyImage) {
+  if (!derivedImageStore.has(imageId)) {
+    derivedImageKeyOrder.push(imageId);
+  }
+  derivedImageStore.set(imageId, image);
+
+  // Simple pruning to avoid unbounded growth when users drag sliders.
+  if (derivedImageKeyOrder.length > DERIVED_IMAGE_STORE_MAX) {
+    const toRemove = derivedImageKeyOrder.splice(0, DERIVED_IMAGE_STORE_PRUNE_BATCH);
+    toRemove.forEach((k) => derivedImageStore.delete(k));
+  }
+}
+
+function parseDerivedImageId(imageId: string): { mode: EnhancementMode; strength: number; sourceId: string } | null {
+  // Format: derived:${mode}:${s}:${encodeURIComponent(sourceId)}
+  if (!imageId.startsWith('derived:')) return null;
+  const parts = imageId.split(':');
+  if (parts.length < 4) return null;
+
+  const mode = parts[1] as EnhancementMode;
+  if (!['none', 'sharpen', 'smooth', 'denoise'].includes(mode)) return null;
+
+  const sInt = Number(parts[2]);
+  const strength = clamp03(Number.isFinite(sInt) ? sInt / 100 : 0);
+
+  const encodedSrc = parts.slice(3).join(':');
+  try {
+    const sourceId = decodeURIComponent(encodedSrc);
+    if (!sourceId) return null;
+    return { mode, strength, sourceId };
+  } catch {
+    return null;
+  }
+}
+
+async function computeDerivedImage(sourceImageId: string, mode: EnhancementMode, strength: number) {
+  const baseImage: AnyImage = await imageLoader.loadImage(sourceImageId);
+  const srcRaw = baseImage.getPixelData();
+  const width = Number(baseImage.columns ?? baseImage.width);
+  const height = Number(baseImage.rows ?? baseImage.height);
+
+  // If we can't filter, just return the base image.
+  if (!width || !height || !srcRaw?.length) return baseImage;
+
+  // Always filter in Float32 to avoid unsigned/signed overflow and to keep
+  // predictable math across DICOM pixel formats.
+  const src = new Float32Array(srcRaw.length);
+  for (let i = 0; i < srcRaw.length; i++) src[i] = Number(srcRaw[i]);
+
+  const { min, max } = getMinMax(src);
+  const OutputCtor = Float32Array as unknown as { new (length: number): any };
+
+  // Strength is interpreted as number of passes (0..3). Fractional part blends the final pass.
+  const s = clamp03(strength);
+  const fullPasses = Math.floor(s);
+  const lastPassStrength = s - fullPasses;
+  const applyPass = (input: ArrayLike<number>, passStrength: number) => {
+    if (mode === 'smooth') {
+      const k = [1 / 16, 2 / 16, 1 / 16, 2 / 16, 4 / 16, 2 / 16, 1 / 16, 2 / 16, 1 / 16];
+      return applyKernel3x3(input, width, height, k, passStrength, OutputCtor, min, max);
+    }
+    if (mode === 'sharpen') {
+      const k = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+      return applyKernel3x3(input, width, height, k, passStrength, OutputCtor, min, max);
+    }
+    return applyMedian3x3(input, width, height, passStrength, OutputCtor, min, max);
+  };
+
+  let filtered: any = src;
+  for (let i = 0; i < fullPasses; i++) {
+    filtered = applyPass(filtered, 1);
+  }
+  if (lastPassStrength > 0) {
+    filtered = applyPass(filtered, lastPassStrength);
+  }
+
+  // Some datasets end up with a narrower range after filtering which can appear
+  // "too dark" under the same VOI. Rescale back to the original [min,max].
+  try {
+    const { min: fMin, max: fMax } = getMinMax(filtered);
+    if (Number.isFinite(min) && Number.isFinite(max) && fMax !== fMin && (fMin !== min || fMax !== max)) {
+      rescaleToRange(filtered, fMin, fMax, min, max);
+      for (let i = 0; i < filtered.length; i++) {
+        filtered[i] = clamp(filtered[i], min, max);
+      }
+    }
+  } catch {
+    // ignore rescale failures
+  }
+
+  return {
+    baseImage,
+    filtered,
+    width,
+    height,
+    min,
+    max,
+  };
 }
 
 function getMinMax(src: ArrayLike<number>) {
@@ -167,14 +276,74 @@ function applyMedian3x3(
 export function initDerivedImageLoader() {
   if (derivedLoaderInitialized) return;
 
+  if (!derivedMetaDataProviderInitialized) {
+    // Ensure derived imageIds have the same metadata as their source images.
+    // Many viewport operations rely on metadata lookups by imageId.
+    metaData.addProvider((type: string, imageId: string) => {
+      const parsed = parseDerivedImageId(imageId);
+      if (!parsed) return undefined;
+      return metaData.get(type, parsed.sourceId);
+    }, 1000);
+
+    derivedMetaDataProviderInitialized = true;
+  }
+
   imageLoader.registerImageLoader('derived', (imageId: string) => {
-    const image = derivedImageStore.get(imageId);
-    if (!image) {
-      return {
-        promise: Promise.reject(new Error(`Unknown derived imageId: ${imageId}`)),
-      };
+    const cached = derivedImageStore.get(imageId);
+    if (cached) return { promise: Promise.resolve(cached) };
+
+    const parsed = parseDerivedImageId(imageId);
+    if (!parsed) {
+      return { promise: Promise.reject(new Error(`Invalid derived imageId: ${imageId}`)) };
     }
-    return { promise: Promise.resolve(image) };
+
+    // Compute on demand and cache.
+    const promise = (async () => {
+      if (parsed.mode === 'none' || parsed.strength === 0) {
+        return imageLoader.loadImage(parsed.sourceId);
+      }
+
+      const { baseImage, filtered, min, max } = await computeDerivedImage(parsed.sourceId, parsed.mode, parsed.strength);
+
+      const derivedImage: AnyImage = Object.assign(Object.create(Object.getPrototypeOf(baseImage)), baseImage, {
+        imageId,
+        getPixelData: () => filtered,
+        sizeInBytes: filtered?.byteLength ?? baseImage.sizeInBytes,
+        minPixelValue: min,
+        maxPixelValue: max,
+        smallestPixelValue: min,
+        largestPixelValue: max,
+      });
+
+      // IMPORTANT: when GPU rendering is enabled, Cornerstone may prefer imageFrame/voxelManager
+      // scalar data over getPixelData(). Ensure those point at our filtered pixels.
+      try {
+        if (derivedImage.imageFrame && typeof derivedImage.imageFrame === 'object') {
+          derivedImage.imageFrame = { ...derivedImage.imageFrame, pixelData: filtered };
+        }
+      } catch {
+        // ignore
+      }
+
+      try {
+        // If voxelManager exists, it may provide the original scalar data.
+        // Remove it so the renderer uses our overridden pixel source.
+        if ('voxelManager' in derivedImage) {
+          try {
+            delete (derivedImage as any).voxelManager;
+          } catch {
+            (derivedImage as any).voxelManager = undefined;
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      storeDerivedImage(imageId, derivedImage);
+      return derivedImage;
+    })();
+
+    return { promise };
   });
 
   derivedLoaderInitialized = true;
@@ -182,75 +351,10 @@ export function initDerivedImageLoader() {
 
 export async function createDerivedImageIds(sourceImageIds: string[], config: EnhancementConfig) {
   const mode = config.mode;
-  const strength = clamp01(config.strength);
+  const strength = clamp03(config.strength);
 
   if (mode === 'none' || strength === 0) return sourceImageIds;
 
-  const derivedIds: string[] = [];
-
-  for (const srcId of sourceImageIds) {
-    const baseImage: AnyImage = await imageLoader.loadImage(srcId);
-    const srcRaw = baseImage.getPixelData();
-    const width = Number(baseImage.columns ?? baseImage.width);
-    const height = Number(baseImage.rows ?? baseImage.height);
-
-    if (!width || !height || !srcRaw?.length) {
-      derivedIds.push(srcId);
-      continue;
-    }
-
-    // Always filter in Float32 to avoid unsigned/signed overflow and to keep
-    // predictable math across DICOM pixel formats.
-    const src = new Float32Array(srcRaw.length);
-    for (let i = 0; i < srcRaw.length; i++) src[i] = Number(srcRaw[i]);
-
-    const { min, max } = getMinMax(src);
-    const OutputCtor = Float32Array as unknown as { new (length: number): any };
-
-    let filtered: any;
-    if (mode === 'smooth') {
-      // Gaussian-ish blur kernel (normalized)
-      const k = [1 / 16, 2 / 16, 1 / 16, 2 / 16, 4 / 16, 2 / 16, 1 / 16, 2 / 16, 1 / 16];
-      filtered = applyKernel3x3(src, width, height, k, strength, OutputCtor, min, max);
-    } else if (mode === 'sharpen') {
-      // Classic sharpen kernel
-      const k = [0, -1, 0, -1, 5, -1, 0, -1, 0];
-      filtered = applyKernel3x3(src, width, height, k, strength, OutputCtor, min, max);
-    } else {
-      // denoise
-      filtered = applyMedian3x3(src, width, height, strength, OutputCtor, min, max);
-    }
-
-    // Some datasets end up with a narrower range after filtering which can appear
-    // "too dark" under the same VOI. Rescale back to the original [min,max].
-    try {
-      const { min: fMin, max: fMax } = getMinMax(filtered);
-      if (Number.isFinite(min) && Number.isFinite(max) && fMax !== fMin && (fMin !== min || fMax !== max)) {
-        rescaleToRange(filtered, fMin, fMax, min, max);
-        for (let i = 0; i < filtered.length; i++) {
-          filtered[i] = clamp(filtered[i], min, max);
-        }
-      }
-    } catch {
-      // ignore rescale failures
-    }
-
-    const derivedImageId = makeDerivedImageId(srcId, mode, strength);
-
-    // Preserve prototype + methods; override pixel data.
-    const derivedImage = Object.assign(Object.create(Object.getPrototypeOf(baseImage)), baseImage, {
-      imageId: derivedImageId,
-      getPixelData: () => filtered,
-      sizeInBytes: filtered?.byteLength ?? baseImage.sizeInBytes,
-      minPixelValue: min,
-      maxPixelValue: max,
-      smallestPixelValue: min,
-      largestPixelValue: max,
-    });
-
-    derivedImageStore.set(derivedImageId, derivedImage);
-    derivedIds.push(derivedImageId);
-  }
-
-  return derivedIds;
+  // Fast mapping only; actual pixels are computed lazily by the derived loader.
+  return sourceImageIds.map((srcId) => makeDerivedImageId(srcId, mode, strength));
 }

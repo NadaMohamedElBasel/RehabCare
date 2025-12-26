@@ -55,6 +55,36 @@
   background: #e9ecef;
 }
 
+.doctor-dicom__notice {
+  border: 1px solid #ffeeba;
+  background: #fff3cd;
+  color: #856404;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.doctor-dicom__noticeTitle {
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.doctor-dicom__noticeBody {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.doctor-dicom__noticeBody code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.doctor-dicom__noticeMeta {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
 /* Main frame: fill the page nicely without nesting scrollbars */
 .doctor-dicom__frame {
   width: 100%;

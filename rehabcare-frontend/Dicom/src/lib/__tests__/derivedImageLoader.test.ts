@@ -26,7 +26,12 @@ jest.mock(
     },
   };
 
-    return { imageLoader };
+  const metaData = {
+    addProvider: jest.fn(),
+    get: jest.fn(),
+  };
+
+    return { imageLoader, metaData };
   },
   { virtual: true }
 );
