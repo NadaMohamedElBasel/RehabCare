@@ -12,6 +12,7 @@ import {
   WindowLevelTool,
   ZoomTool,
   PanTool,
+  TrackballRotateTool,
   PlanarRotateTool,
   LengthTool,
   AngleTool,
@@ -82,6 +83,13 @@ export const useToolConfig = () => {
       label: 'Rotate',
       icon: ArrowPathIcon,
       group: 'tools',
+    },
+    {
+      name: TrackballRotateTool.toolName,
+      label: '3D Rotate',
+      icon: Square3Stack3DIcon,
+      group: 'tools',
+      modes: ['mpr'],
     },
     {
       name: LengthTool.toolName,

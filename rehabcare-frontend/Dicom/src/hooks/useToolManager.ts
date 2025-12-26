@@ -5,6 +5,7 @@ import {
   ZoomTool,
   PanTool,
   WindowLevelTool,
+  TrackballRotateTool,
   PlanarRotateTool,
   ArrowAnnotateTool,
   LengthTool,
@@ -45,6 +46,7 @@ export const useToolManager = (toolGroupId: string = TOOLGROUP_ID) => {
     toolGroup.setToolPassive(WindowLevelTool.toolName);
     toolGroup.setToolPassive(ZoomTool.toolName);
     toolGroup.setToolPassive(PanTool.toolName);
+    toolGroup.setToolPassive(TrackballRotateTool.toolName);
     toolGroup.setToolPassive(PlanarRotateTool.toolName);
     toolGroup.setToolPassive(ArrowAnnotateTool.toolName);
     toolGroup.setToolPassive(LengthTool.toolName);

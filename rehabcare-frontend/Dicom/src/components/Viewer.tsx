@@ -16,6 +16,7 @@ import {
   ZoomTool,
   PanTool,
   WindowLevelTool,
+  TrackballRotateTool,
   PlanarRotateTool,
   LengthTool,
   AngleTool,
@@ -37,8 +38,9 @@ interface ViewerProps {
 
   // In MPR, which viewport(s) should receive mouse interactions.
   // - 'axial'|'sagittal'|'coronal' => only that plane is interactive
+  // - '3d' => 3D viewport is interactive
   // - 'all' => all planes interactive + optional sync
-  mprInteractionTarget?: 'axial' | 'sagittal' | 'coronal' | 'all';
+  mprInteractionTarget?: 'axial' | 'sagittal' | 'coronal' | '3d' | 'all';
 }
 
 export interface ViewerRef {
@@ -46,7 +48,7 @@ export interface ViewerRef {
   setWindowLevel: (opts: {
     center: number;
     width: number;
-    target?: 'stack' | 'axial' | 'sagittal' | 'coronal' | 'all';
+    target?: 'stack' | 'axial' | 'sagittal' | 'coronal' | '3d' | 'all';
   }) => void;
 }
 
@@ -57,8 +59,10 @@ const TOOLGROUP_ID = 'defaultToolGroup';
 const MPR_AXIAL_VIEWPORT_ID = 'mprAxialViewport';
 const MPR_SAGITTAL_VIEWPORT_ID = 'mprSagittalViewport';
 const MPR_CORONAL_VIEWPORT_ID = 'mprCoronalViewport';
+const MPR_3D_VIEWPORT_ID = 'mpr3dViewport';
 
 const MPR_TOOLGROUP_ID = 'mprToolGroup';
+const MPR_3D_TOOLGROUP_ID = 'mpr3dToolGroup';
 
 const MPR_ZOOMPAN_SYNC_ID = 'mprZoomPanSync';
 const MPR_VOI_SYNC_ID = 'mprVoiSync';
@@ -73,6 +77,7 @@ function registerToolsOnce() {
   addTool(ZoomTool);
   addTool(PanTool);
   addTool(WindowLevelTool);
+  addTool(TrackballRotateTool);
   addTool(PlanarRotateTool);
   addTool(LengthTool);
   addTool(AngleTool);
@@ -100,6 +105,7 @@ function ensureToolGroup(toolGroupId: string, opts?: { includeCrosshairs?: boole
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(WindowLevelTool.toolName);
   toolGroup.addTool(PlanarRotateTool.toolName);
+  toolGroup.addTool(TrackballRotateTool.toolName);
   toolGroup.addTool(LengthTool.toolName);
   toolGroup.addTool(AngleTool.toolName);
   toolGroup.addTool(ScaleOverlayTool.toolName);
@@ -121,6 +127,25 @@ function ensureToolGroup(toolGroupId: string, opts?: { includeCrosshairs?: boole
   return toolGroup;
 }
 
+function ensure3DToolGroup() {
+  let toolGroup = ToolGroupManager.getToolGroup(MPR_3D_TOOLGROUP_ID);
+  if (toolGroup) return toolGroup;
+
+  toolGroup = ToolGroupManager.createToolGroup(MPR_3D_TOOLGROUP_ID);
+  if (!toolGroup) {
+    throw new Error(`Failed to create tool group: ${MPR_3D_TOOLGROUP_ID}`);
+  }
+
+  toolGroup.addTool(TrackballRotateTool.toolName);
+  toolGroup.addTool(ZoomTool.toolName);
+  toolGroup.addTool(PanTool.toolName);
+  toolGroup.addTool(WindowLevelTool.toolName);
+
+  // Default interaction: 3D rotate on left drag
+  toolGroup.setToolActive(TrackballRotateTool.toolName, { bindings: [{ mouseButton: 1 }] });
+  return toolGroup;
+}
+
 const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteractionTarget = 'axial' }, ref) => {
   // Root container used for screenshots (captures stack OR all MPR planes)
   const containerRef = useRef<HTMLDivElement>(null);
@@ -130,6 +155,7 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
   const axialElementRef = useRef<HTMLDivElement>(null);
   const sagittalElementRef = useRef<HTMLDivElement>(null);
   const coronalElementRef = useRef<HTMLDivElement>(null);
+  const volume3dElementRef = useRef<HTMLDivElement>(null);
 
   // Slice sliders (MPR): each orthographic viewport can scroll independently
   const [axialMax, setAxialMax] = useState(0);
@@ -197,12 +223,14 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
         applyToViewport(MPR_AXIAL_VIEWPORT_ID);
         applyToViewport(MPR_SAGITTAL_VIEWPORT_ID);
         applyToViewport(MPR_CORONAL_VIEWPORT_ID);
+        applyToViewport(MPR_3D_VIEWPORT_ID);
         return;
       }
 
       if (target === 'axial') applyToViewport(MPR_AXIAL_VIEWPORT_ID);
       if (target === 'sagittal') applyToViewport(MPR_SAGITTAL_VIEWPORT_ID);
       if (target === 'coronal') applyToViewport(MPR_CORONAL_VIEWPORT_ID);
+      if (target === '3d') applyToViewport(MPR_3D_VIEWPORT_ID);
     },
   }));
 
@@ -212,9 +240,10 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
     const axialEl = axialElementRef.current;
     const sagittalEl = sagittalElementRef.current;
     const coronalEl = coronalElementRef.current;
+    const volume3dEl = volume3dElementRef.current;
 
     if (mode === 'stack' && !stackEl) return;
-    if (mode === 'mpr' && (!axialEl || !sagittalEl || !coronalEl)) return;
+    if (mode === 'mpr' && (!axialEl || !sagittalEl || !coronalEl || !volume3dEl)) return;
 
     let renderingEngine: RenderingEngine | null = null;
 
@@ -289,6 +318,12 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
             type: Enums.ViewportType.ORTHOGRAPHIC,
             defaultOptions: { orientation: Enums.OrientationAxis.CORONAL },
           },
+          {
+            viewportId: MPR_3D_VIEWPORT_ID,
+            element: volume3dEl!,
+            type: Enums.ViewportType.VOLUME_3D,
+            defaultOptions: { parallelProjection: false },
+          },
         ]);
 
         // Build a volume from the imageIds (this is what enables true MPR)
@@ -308,11 +343,13 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
         const axialVp = renderingEngine.getViewport(MPR_AXIAL_VIEWPORT_ID) as any;
         const sagittalVp = renderingEngine.getViewport(MPR_SAGITTAL_VIEWPORT_ID) as any;
         const coronalVp = renderingEngine.getViewport(MPR_CORONAL_VIEWPORT_ID) as any;
+        const volume3dVp = renderingEngine.getViewport(MPR_3D_VIEWPORT_ID) as any;
 
         await Promise.all([
           axialVp.setVolumes([{ volumeId: MPR_VOLUME_ID }], true),
           sagittalVp.setVolumes([{ volumeId: MPR_VOLUME_ID }], true),
           coronalVp.setVolumes([{ volumeId: MPR_VOLUME_ID }], true),
+          volume3dVp.setVolumes([{ volumeId: MPR_VOLUME_ID }], true),
         ]);
 
         // Apply an initial VOI range so MPR matches stack's default leveling behavior.
@@ -338,6 +375,17 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
           axialVp.setProperties?.({ voiRange });
           sagittalVp.setProperties?.({ voiRange });
           coronalVp.setProperties?.({ voiRange });
+
+          // VolumeViewport3D needs its own VOI + preset to avoid rendering black by default.
+          // Use a standard MIP preset for a 3D Slicer-like first impression.
+          try {
+            volume3dVp.resetProperties?.();
+          } catch {
+            // ignore
+          }
+          volume3dVp.setProperties?.({ voiRange, preset: 'CT-MIP' });
+          volume3dVp.resetCamera?.({ resetPan: true, resetZoom: true, resetToCenter: true });
+          volume3dVp.render?.();
         } catch (e) {
           console.warn('Failed to set initial MPR VOI:', e);
         }
@@ -369,6 +417,7 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
         axialVp.resetCameraForResize?.();
         sagittalVp.resetCameraForResize?.();
         coronalVp.resetCameraForResize?.();
+        volume3dVp.resetCameraForResize?.();
 
         // One tool group for all MPR planes (required for CrosshairsTool to draw reference lines
         // across viewports and perform linked navigation).
@@ -376,6 +425,10 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
         mprGroup.addViewport(MPR_AXIAL_VIEWPORT_ID, RENDERING_ENGINE_ID);
         mprGroup.addViewport(MPR_SAGITTAL_VIEWPORT_ID, RENDERING_ENGINE_ID);
         mprGroup.addViewport(MPR_CORONAL_VIEWPORT_ID, RENDERING_ENGINE_ID);
+
+        // Dedicated 3D tool group (TrackballRotate + Zoom/Pan/WL)
+        const volume3dGroup = ensure3DToolGroup();
+        volume3dGroup.addViewport(MPR_3D_VIEWPORT_ID, RENDERING_ENGINE_ID);
 
         // Create (or reuse) synchronizers for optional WL/Zoom/Pan syncing across MPR planes.
         // They are globally stored inside Cornerstone Tools, so we create them once and toggle enabled.
@@ -407,6 +460,7 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
           MPR_AXIAL_VIEWPORT_ID,
           MPR_SAGITTAL_VIEWPORT_ID,
           MPR_CORONAL_VIEWPORT_ID,
+          MPR_3D_VIEWPORT_ID,
         ]);
       } catch (error) {
         console.error('Error initializing viewer:', error);
@@ -419,16 +473,41 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
     return () => {
       try {
         if (renderingEngine) {
-          // Disable whichever viewports were enabled
-          renderingEngine.disableElement(VIEWPORT_ID);
-          renderingEngine.disableElement(MPR_AXIAL_VIEWPORT_ID);
-          renderingEngine.disableElement(MPR_SAGITTAL_VIEWPORT_ID);
-          renderingEngine.disableElement(MPR_CORONAL_VIEWPORT_ID);
+          // Disable only viewports that exist. When switching modes, the other set of
+          // viewports might never have been created, so disabling them would warn.
+          const safeDisableViewport = (viewportId: string) => {
+            try {
+              const vp = (renderingEngine as any).getViewport?.(viewportId);
+              if (!vp) return;
+              (renderingEngine as any).disableElement?.(viewportId);
+            } catch {
+              // ignore
+            }
+          };
+
+          safeDisableViewport(VIEWPORT_ID);
+          safeDisableViewport(MPR_AXIAL_VIEWPORT_ID);
+          safeDisableViewport(MPR_SAGITTAL_VIEWPORT_ID);
+          safeDisableViewport(MPR_CORONAL_VIEWPORT_ID);
+          safeDisableViewport(MPR_3D_VIEWPORT_ID);
         }
 
         // Tool groups are created on-demand; destroy to avoid leaking bindings
-        ToolGroupManager.destroyToolGroup(TOOLGROUP_ID);
-        ToolGroupManager.destroyToolGroup(MPR_TOOLGROUP_ID);
+        try {
+          ToolGroupManager.destroyToolGroup(TOOLGROUP_ID);
+        } catch {
+          // ignore
+        }
+        try {
+          ToolGroupManager.destroyToolGroup(MPR_TOOLGROUP_ID);
+        } catch {
+          // ignore
+        }
+        try {
+          ToolGroupManager.destroyToolGroup(MPR_3D_TOOLGROUP_ID);
+        } catch {
+          // ignore
+        }
 
         // Destroy synchronizers on unmount to avoid cross-session leakage.
         SynchronizerManager.destroySynchronizer(MPR_ZOOMPAN_SYNC_ID);
@@ -472,8 +551,17 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
         // Stack mode: single viewport fills the container
         <div ref={stackElementRef} className="w-full h-full" />
       ) : (
-        // MPR mode: 4-panel layout (3 planes + 3D placeholder)
-        <div className="grid grid-cols-1 md:grid-cols-2 md:grid-rows-2 w-full h-full min-h-0 min-w-0 gap-px bg-gray-900">
+        // MPR mode: 4-panel layout (3D + 3 planes)
+        <div className="grid grid-cols-2 grid-rows-2 w-full h-full min-h-0 min-w-0 gap-px bg-gray-900">
+          <div className="relative w-full h-full min-h-0 min-w-0 overflow-hidden bg-black">
+            <div className="absolute top-2 left-2 z-10 px-2 py-1 text-xs font-medium text-white bg-black/60 rounded">3D</div>
+            <div
+              ref={volume3dElementRef}
+              className="w-full h-full"
+              style={{ pointerEvents: mprInteractionTarget === '3d' || mprInteractionTarget === 'all' ? 'auto' : 'none' }}
+            />
+          </div>
+
           <div className="relative w-full h-full min-h-0 min-w-0 overflow-hidden bg-black">
             <div className="absolute top-2 left-2 z-10 px-2 py-1 text-xs font-medium text-white bg-black/60 rounded">Axial</div>
             <div
@@ -549,12 +637,6 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
             )}
           </div>
 
-          <div className="relative w-full h-full min-h-0 min-w-0 overflow-hidden bg-black">
-            <div className="absolute top-2 left-2 z-10 px-2 py-1 text-xs font-medium text-white bg-black/60 rounded">3D (coming soon)</div>
-            <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
-              3D view is not implemented yet
-            </div>
-          </div>
         </div>
       )}
     </div>

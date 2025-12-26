@@ -22,8 +22,8 @@ interface ToolControlsProps {
   viewMode?: 'stack' | 'mpr';
   onViewModeChange?: (mode: 'stack' | 'mpr') => void;
   mprEnabled?: boolean;
-  mprActiveView?: 'axial' | 'sagittal' | 'coronal' | 'all';
-  onMprActiveViewChange?: (view: 'axial' | 'sagittal' | 'coronal' | 'all') => void;
+  mprActiveView?: 'axial' | 'sagittal' | 'coronal' | '3d' | 'all';
+  onMprActiveViewChange?: (view: 'axial' | 'sagittal' | 'coronal' | '3d' | 'all') => void;
 
   // Doctor notes (stack-only feature)
   notes?: Array<{ id: string; text: string; createdAt: string }>;
@@ -124,13 +124,14 @@ const ToolControls = ({
             {viewMode === 'mpr' && onMprActiveViewChange && (
               <select
                 value={mprActiveView}
-                onChange={(e) => onMprActiveViewChange(e.target.value as 'axial' | 'sagittal' | 'coronal' | 'all')}
+                onChange={(e) => onMprActiveViewChange(e.target.value as 'axial' | 'sagittal' | 'coronal' | '3d' | 'all')}
                 className="w-full px-3 py-2 text-sm rounded-md bg-white border border-gray-300 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
                 title="Choose which MPR plane the tools will affect"
               >
                 <option value="axial">Apply tools to: Axial</option>
                 <option value="sagittal">Apply tools to: Sagittal</option>
                 <option value="coronal">Apply tools to: Coronal</option>
+                <option value="3d">Apply tools to: 3D</option>
                 <option value="all">All views (sync WL/Zoom/Pan)</option>
               </select>
             )}

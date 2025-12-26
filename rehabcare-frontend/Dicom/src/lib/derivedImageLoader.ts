@@ -22,11 +22,12 @@ function clamp01(value: number) {
   return clamp(value, 0, 1);
 }
 
-function makeId() {
-  // Browser-safe, no dependency on Node crypto
-  const globalCrypto = (globalThis as any).crypto;
-  if (globalCrypto?.randomUUID) return globalCrypto.randomUUID();
-  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+function makeDerivedImageId(srcId: string, mode: EnhancementMode, strength: number) {
+  // Deterministic IDs so slider updates don't leak memory by generating infinite derived IDs.
+  // Quantize strength so "nearby" slider values still map cleanly.
+  const s = Math.round(clamp01(strength) * 1000);
+  const encodedSrc = encodeURIComponent(srcId);
+  return `derived:${mode}:${s}:${encodedSrc}`;
 }
 
 function getMinMax(src: ArrayLike<number>) {
@@ -42,6 +43,23 @@ function getMinMax(src: ArrayLike<number>) {
     max = 0;
   }
   return { min, max };
+}
+
+function rescaleToRange(
+  src: Float32Array,
+  fromMin: number,
+  fromMax: number,
+  toMin: number,
+  toMax: number
+) {
+  if (!Number.isFinite(fromMin) || !Number.isFinite(fromMax) || fromMax === fromMin) {
+    return src;
+  }
+  const scale = (toMax - toMin) / (fromMax - fromMin);
+  for (let i = 0; i < src.length; i++) {
+    src[i] = (src[i] - fromMin) * scale + toMin;
+  }
+  return src;
 }
 
 function applyKernel3x3(
@@ -172,17 +190,22 @@ export async function createDerivedImageIds(sourceImageIds: string[], config: En
 
   for (const srcId of sourceImageIds) {
     const baseImage: AnyImage = await imageLoader.loadImage(srcId);
-    const src = baseImage.getPixelData();
+    const srcRaw = baseImage.getPixelData();
     const width = Number(baseImage.columns ?? baseImage.width);
     const height = Number(baseImage.rows ?? baseImage.height);
 
-    if (!width || !height || !src?.length) {
+    if (!width || !height || !srcRaw?.length) {
       derivedIds.push(srcId);
       continue;
     }
 
+    // Always filter in Float32 to avoid unsigned/signed overflow and to keep
+    // predictable math across DICOM pixel formats.
+    const src = new Float32Array(srcRaw.length);
+    for (let i = 0; i < srcRaw.length; i++) src[i] = Number(srcRaw[i]);
+
     const { min, max } = getMinMax(src);
-    const OutputCtor = (src as any).constructor as { new (length: number): any };
+    const OutputCtor = Float32Array as unknown as { new (length: number): any };
 
     let filtered: any;
     if (mode === 'smooth') {
@@ -198,13 +221,31 @@ export async function createDerivedImageIds(sourceImageIds: string[], config: En
       filtered = applyMedian3x3(src, width, height, strength, OutputCtor, min, max);
     }
 
-    const derivedImageId = `derived:${makeId()}`;
+    // Some datasets end up with a narrower range after filtering which can appear
+    // "too dark" under the same VOI. Rescale back to the original [min,max].
+    try {
+      const { min: fMin, max: fMax } = getMinMax(filtered);
+      if (Number.isFinite(min) && Number.isFinite(max) && fMax !== fMin && (fMin !== min || fMax !== max)) {
+        rescaleToRange(filtered, fMin, fMax, min, max);
+        for (let i = 0; i < filtered.length; i++) {
+          filtered[i] = clamp(filtered[i], min, max);
+        }
+      }
+    } catch {
+      // ignore rescale failures
+    }
+
+    const derivedImageId = makeDerivedImageId(srcId, mode, strength);
 
     // Preserve prototype + methods; override pixel data.
     const derivedImage = Object.assign(Object.create(Object.getPrototypeOf(baseImage)), baseImage, {
       imageId: derivedImageId,
       getPixelData: () => filtered,
       sizeInBytes: filtered?.byteLength ?? baseImage.sizeInBytes,
+      minPixelValue: min,
+      maxPixelValue: max,
+      smallestPixelValue: min,
+      largestPixelValue: max,
     });
 
     derivedImageStore.set(derivedImageId, derivedImage);

@@ -49,7 +49,7 @@ CORS(app)
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "", # change to yours
+    "password": "1234", # change to yours
     "host": "localhost",
     "port": "5432"
 }

@@ -34,7 +34,8 @@ module.exports = {
       },
     ],
     historyApiFallback: true,
-    port: 3000,
+    // NOTE: keep this different from the main CRA frontend dev server (usually 3000)
+    port: 3001,
     open: true,
     headers: {
       "Access-Control-Allow-Origin": "*",

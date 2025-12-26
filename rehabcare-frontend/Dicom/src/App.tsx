@@ -19,19 +19,14 @@ import {
   ArrowsPointingInIcon,
 } from '@heroicons/react/24/outline';
 import React from 'react';
-import { createDerivedImageIds, type EnhancementMode } from '@lib/derivedImageLoader';
 import { imageLoader } from '@cornerstonejs/core';
 
 const App = () => {
-  const [sourceImageIds, setSourceImageIds] = useState<string[] | null>(null);
   const [imageIds, setImageIds] = useState<string[] | null>(null);
   const [metadata, setMetadata] = useState<Record<string, string>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewMode, setViewMode] = useState<'stack' | 'mpr'>('stack');
-  const [mprActiveView, setMprActiveView] = useState<'axial' | 'sagittal' | 'coronal' | 'all'>('axial');
-  const [enhancementMode, setEnhancementMode] = useState<EnhancementMode>('none');
-  const [enhancementStrength, setEnhancementStrength] = useState(0.6);
-  const [enhancementBusy, setEnhancementBusy] = useState(false);
+  const [mprActiveView, setMprActiveView] = useState<'axial' | 'sagittal' | 'coronal' | '3d' | 'all'>('axial');
   const [wlCenter, setWlCenter] = useState<number>(0);
   const [wlWidth, setWlWidth] = useState<number>(1);
   const [wlMin, setWlMin] = useState<number>(0);
@@ -56,9 +51,7 @@ const App = () => {
     const objectUrls = files.map((f) => URL.createObjectURL(f));
     objectUrlsRef.current = objectUrls;
     const nextImageIds = objectUrls.map((u) => `wadouri:${u}`);
-    setSourceImageIds(nextImageIds);
     setImageIds(nextImageIds);
-    setEnhancementMode('none');
 
     // If user uploads a single DICOM, stay in stack mode by default.
     // If they upload multiple slices, keep the current mode but MPR becomes meaningful.
@@ -86,31 +79,6 @@ const App = () => {
       worker.terminate();
     };
   };
-
-  useEffect(() => {
-    const run = async () => {
-      if (!sourceImageIds) return;
-      if (enhancementMode === 'none') {
-        setImageIds(sourceImageIds);
-        return;
-      }
-      setEnhancementBusy(true);
-      try {
-        const derived = await createDerivedImageIds(sourceImageIds, {
-          mode: enhancementMode,
-          strength: enhancementStrength,
-        });
-        setImageIds(derived);
-      } catch (e) {
-        console.warn('Failed to apply enhancement filter:', e);
-        setImageIds(sourceImageIds);
-        setEnhancementMode('none');
-      } finally {
-        setEnhancementBusy(false);
-      }
-    };
-    run();
-  }, [sourceImageIds, enhancementMode, enhancementStrength]);
 
   // Compute default leveling (window/level) range from the first slice.
   useEffect(() => {
@@ -157,13 +125,11 @@ const App = () => {
   const handleClear = async () => {
     objectUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
     objectUrlsRef.current = [];
-    setSourceImageIds(null);
     setImageIds(null);
     setMetadata({});
     setIsFullscreen(false);
     setViewMode('stack');
     setMprActiveView('axial');
-    setEnhancementMode('none');
     setDoctorNotes([]);
 
     // Clear the IndexedDB storage
@@ -180,7 +146,12 @@ const App = () => {
 
   const isMprPossible = (imageIds?.length ?? 0) >= 2;
 
-  const activeToolGroupId = viewMode === 'mpr' ? 'mprToolGroup' : 'defaultToolGroup';
+  const activeToolGroupId =
+    viewMode !== 'mpr'
+      ? 'defaultToolGroup'
+      : mprActiveView === '3d'
+        ? 'mpr3dToolGroup'
+        : 'mprToolGroup';
 
   const addDoctorNote = (text: string) => {
     const id = (globalThis.crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -260,42 +231,6 @@ const App = () => {
                   onAddNote={viewMode === 'stack' ? addDoctorNote : undefined}
                   onClearNotes={viewMode === 'stack' ? clearDoctorNotes : undefined}
                 />
-
-                {/* Image enhancement controls (basic clinical filters) */}
-                <div className="pt-2 space-y-2">
-                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Image Enhancement</div>
-                  <select
-                    value={enhancementMode}
-                    onChange={(e) => setEnhancementMode(e.target.value as EnhancementMode)}
-                    className="w-full px-3 py-2 text-sm rounded-md bg-white border border-gray-300 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
-                    disabled={enhancementBusy}
-                    title="Apply a basic enhancement filter"
-                  >
-                    <option value="none">None</option>
-                    <option value="sharpen">Sharpen</option>
-                    <option value="smooth">Smooth</option>
-                    <option value="denoise">Noise Reduction</option>
-                  </select>
-
-                  {enhancementMode !== 'none' && (
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
-                        <span>Strength</span>
-                        <span>{Math.round(enhancementStrength * 100)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={enhancementStrength}
-                        onChange={(e) => setEnhancementStrength(Number(e.target.value))}
-                        className="w-full"
-                        disabled={enhancementBusy}
-                      />
-                    </div>
-                  )}
-                </div>
 
                 {/* Leveling (Window/Level) */}
                 <div className="pt-4 space-y-2">
