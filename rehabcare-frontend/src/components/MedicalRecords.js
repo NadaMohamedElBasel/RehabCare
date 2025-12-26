@@ -80,6 +80,14 @@ function MedicalRecords() {
     }
   };
 
+  const parseRecordData = (data) => {
+  try {
+    return typeof data === "string" ? JSON.parse(data) : data;
+  } catch (e) {
+    return {};
+  }
+};
+
   return (
     <div className="medical-records-container">
       <h2>Medical Records</h2>
@@ -102,11 +110,31 @@ function MedicalRecords() {
                 <span className="department-badge">{record.department}</span>
               )}
               <div className="record-body">
-                <p>{record.record_data}</p>
-              </div>
-              <div className="record-footer">
+              {(() => {
+                const data = parseRecordData(record.record_data);
+
+                return (
+                  <div className="record-grid">
+                    <div><strong>Gender:</strong> {data.gender || "-"}</div>
+                    <div><strong>Weight:</strong> {data.weight ? `${data.weight} kg` : "-"}</div>
+                    <div><strong>Height:</strong> {data.height ? `${data.height} cm` : "-"}</div>
+                    <div><strong>Blood Pressure:</strong> {data.bloodPressure || "-"}</div>
+
+                    {/* Doctor Notes */}
+                    {data.notes && (
+                      <div className="doctor-notes">
+                        <strong>Doctor Notes:</strong>
+                        <p>{data.notes}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+              {/* <div className="record-footer">
                 <small>Created on: {record.created_at}</small>
-              </div>
+              </div> */}
             </div>
           ))
         )}
