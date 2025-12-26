@@ -1,7 +1,7 @@
-// src/components/AdminBillingManager.js
+// src/components/BillingManager.js
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import './AdminBillingManager.css';
+import './BillingManager.css';
 
 // Mock ICD-10 Codes
 const ICD10_CODES = [
@@ -34,7 +34,7 @@ const ICD10_CODES = [
 
 const BILL_STATUSES = ['pending', 'paid', 'overdue', 'insurance_submitted', 'canceled'];
 
-function AdminBillingManager() {
+function BillingManager() {
   const [bills, setBills] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -243,4 +243,4 @@ function AdminBillingManager() {
   );
 }
 
-export default AdminBillingManager;
+export default BillingManager;

@@ -15,9 +15,40 @@ CORS(app)
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "Admin@123", # change to yours
+    "password": "abcde", # change to yours
     "host": "localhost",
     "port": "5432"
+}
+
+# app.py - Define this at the top level of your file
+ICD10_FEE_SCHEDULE = {
+    # --- MUSCULOSKELETAL & ORTHOPEDIC ($100 - $130) ---
+    'M54.5': 100.00,  # Low back pain
+    'M54.2': 100.00,  # Neck pain
+    'M54.41': 115.00,  # Lumbago with sciatica
+    'M25.511': 110.00,  # Shoulder pain
+    'M25.561': 110.00,  # Knee pain
+    'M75.10': 125.00,  # Rotator cuff
+    'M76.60': 115.00,  # Achilles tendinitis
+    'S93.409A': 130.00,  # Ankle sprain (initial encounter)
+
+    # --- NEUROLOGICAL ($160 - $200) ---
+    'I69.351': 200.00,  # Stroke rehab
+    'G35': 180.00,  # Multiple sclerosis
+    'G20': 180.00,  # Parkinson’s
+    'I69.32': 165.00,  # Aphasia
+    'R47.1': 160.00,  # Dysarthria
+    'R13.10': 175.00,  # Dysphagia
+
+    # --- GENERAL MOBILITY & AFTERCARE ($120 - $150) ---
+    'M62.81': 120.00,  # Muscle weakness
+    'R26.2': 125.00,  # Difficulty walking
+    'R26.81': 125.00,  # Unsteadiness
+    'Z47.1': 150.00,  # Post-joint replacement
+    'I25.10': 140.00,  # Cardiac Rehab
+    'J44.9': 140.00,  # COPD / Pulmonary Rehab
+
+    'DEFAULT': 110.00  # Fallback for any other purpose/notes
 }
 
 def getDbConnection():
@@ -283,34 +314,14 @@ def manageAppointments(patientId=None):
             if appointment and appointment.get('appointment_time'):
                 appointment['appointment_time'] = str(appointment['appointment_time'])
 
-            BILLING_AMOUNT = 10.00
-            due_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-            cursor.execute(
-                """
-                INSERT INTO billing (
-                    patient_id, amount, due_date, icd10_code, status, appointment_id
-                ) VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING billing_id
-                """,
-                (
-                    patientId_post,
-                    BILLING_AMOUNT,
-                    due_date,
-                    purpose,  # The ICD-10 code from the appointment purpose
-                    'pending',  # Default status for auto-generated bill
-                    appointment_id  # Link the bill to the appointment
-                )
-            )
-            bill = cursor.fetchone()
-            billing_id = bill['billing_id']
+
             # ---------------------------------------------------------------------
 
             conn.commit()
 
             return jsonify({
-                "message": "Appointment scheduled and bill created successfully",
-                "appointment_id": appointment_id,
-                "billing_id": billing_id
+                "message": "Appointment scheduled successfully",
+                "appointment_id": appointment_id
             }), 201
             return jsonify(appointment), 201
 
@@ -411,30 +422,53 @@ def updateAppointment(appointmentId):
         conn = getDbConnection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-        # --- Logic for Simple Status Update (PATCH) ---
+        # --- PATCH: Handle Status Updates and Automatic Billing ---
         if request.method == 'PATCH':
-            new_status = data.get('status')
+            new_status = data.get('status', '').lower()
+            if new_status not in ['scheduled', 'completed', 'cancelled']:
+                return jsonify({'error': 'Invalid status provided'}), 400
 
-            if not new_status or new_status.lower() not in ['scheduled', 'completed', 'cancelled']:
-                return jsonify({'error': 'Invalid or missing status provided for PATCH'}), 400
-
-            new_status_lower = new_status.lower()
-
+            # 1. Update the appointment status
             cursor.execute(
-                "UPDATE appointments SET status = %s WHERE appointment_id = %s RETURNING appointment_id, status",
-                (new_status_lower, appointmentId)
+                """
+                UPDATE appointments SET status = %s WHERE appointment_id = %s 
+                RETURNING appointment_id, patient_id, purpose, status
+                """,
+                (new_status, appointmentId)
             )
+            appointment = cursor.fetchone()
+            if not appointment:
+                return jsonify({'error': 'Appointment not found'}), 404
 
-            result = cursor.fetchone()
-            if not result:
-                return jsonify({'error': f'Appointment ID {appointmentId} not found.'}), 404
+            # 2. Trigger billing only if status is 'completed'
+            billing_id = None
+            if new_status == 'completed':
+                # Check for existing bill to prevent duplicate billing
+                cursor.execute("SELECT billing_id FROM billing WHERE appointment_id = %s", (appointmentId,))
+                if not cursor.fetchone():
+                    # Look up fee based on ICD-10 code (purpose)
+                    icd_code = appointment['purpose']
+                    billing_amount = ICD10_FEE_SCHEDULE.get(icd_code, ICD10_FEE_SCHEDULE['DEFAULT'])
+                    due_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+
+                    cursor.execute(
+                        """
+                        INSERT INTO billing (patient_id, amount, due_date, icd10_code, status, appointment_id)
+                        VALUES (%s, %s, %s, %s, 'pending', %s)
+                        RETURNING billing_id
+                        """,
+                        (appointment['patient_id'], billing_amount, due_date, icd_code, appointmentId)
+                    )
+                    billing_id = cursor.fetchone()['billing_id']
 
             conn.commit()
-            return jsonify(
-                {'message': f'Appointment {appointmentId} status updated to {new_status}', 'appointment': result}), 200
+            return jsonify({
+                "message": f"Appointment updated to {new_status}",
+                "appointment": appointment,
+                "billing_id": billing_id
+            }), 200
 
-
-        # --- Logic for Full Update (PUT) ---
+        # --- PUT: Handle Full Detail Updates ---
         elif request.method == 'PUT':
             appointment_date = data.get('appointmentDate')
             appointment_time = data.get('appointmentTime')
@@ -442,51 +476,27 @@ def updateAppointment(appointmentId):
             doctor_id = data.get('doctor_id') or data.get('doctorId')
             notes = data.get('notes')
 
-            # Building dynamic update query based on fields provided (omitted for brevity,
-            # but ensure your logic here handles updating only provided fields or validating all required fields for a PUT)
-
-            fields = []
-            values = []
-
-            if appointment_date is not None:
-                fields.append('appointment_date = %s')
-                values.append(appointment_date)
-            # ... (rest of your PUT update logic here for time, purpose, doctor_id, notes) ...
-            if not fields:
-                return jsonify({"error": "No fields to update"}), 400
-
-            values.append(appointmentId)
-            sql = f"""
-                UPDATE appointments
-                SET {', '.join(fields)}
-                WHERE appointment_id = %s
-                RETURNING appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, doctor_id, notes, status
-            """
-
-            # EXECUTE THE QUERY HERE... (using the built sql and values tuple)
-            # Example simplified update:
             cursor.execute(
-                "UPDATE appointments SET appointment_date = %s, appointment_time = %s, purpose = %s, doctor_id = %s, notes = %s WHERE appointment_id = %s RETURNING *",
+                """
+                UPDATE appointments 
+                SET appointment_date = %s, appointment_time = %s, purpose = %s, doctor_id = %s, notes = %s 
+                WHERE appointment_id = %s RETURNING *
+                """,
                 (appointment_date, appointment_time, purpose, doctor_id, notes, appointmentId)
             )
-
             result = cursor.fetchone()
             conn.commit()
-
             if not result:
                 return jsonify({"error": "Appointment not found"}), 404
-
             return jsonify(result), 200
 
     except Exception as e:
+        if conn: conn.rollback()
         logging.exception("Failed to update appointment")
-        conn.rollback()
-        return jsonify({"error": f'Failed to update appointment: {str(e)}'}), 500
+        return jsonify({"error": str(e)}), 500
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        if cursor: cursor.close()
+        if conn: conn.close()
 # Cancel appointment
 @app.route('/api/appointments/<int:appointmentId>/cancel', methods=['PUT'])
 def cancelAppointment(appointmentId):
@@ -519,6 +529,39 @@ def cancelAppointment(appointmentId):
             cursor.close()
         if conn:
             conn.close()
+
+
+@app.route('/api/doctor/block-time', methods=['POST'])
+def block_doctor_time():
+    data = request.get_json()
+    doctor_id = data.get('doctorId')
+    date = data.get('date')
+    time = data.get('time')
+    note = data.get('note', 'Manual Block')  # Doctor's reason
+
+    conn = getDbConnection()
+    cursor = conn.cursor()
+
+    # 1. Check if the slot is already taken (existing logic)
+    cursor.execute("""
+        SELECT 1 FROM appointments 
+        WHERE doctor_id = %s AND appointment_date = %s AND appointment_time = %s
+        AND status != 'cancelled'
+    """, (doctor_id, date, time))
+
+    if cursor.fetchone():
+        return jsonify({"error": "Slot already occupied"}), 409
+
+    # 2. Insert with patient_id as NULL
+    cursor.execute("""
+        INSERT INTO appointments (doctor_id, patient_id, appointment_date, appointment_time, purpose, status)
+        VALUES (%s, NULL, %s, %s, %s, 'manual')
+    """, (doctor_id, date, time, note))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"message": "Time slot blocked successfully"}), 201
 
 # Medical History Access
 @app.route('/api/medical-records/<int:patientId>', methods=['GET'])
@@ -974,15 +1017,15 @@ def doctorAppointments(doctorId):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute("""
-            SELECT a.appointment_id, a.patient_id, a.appointment_date,
-                   TO_CHAR(a.appointment_time, 'HH24:MI') AS appointment_time,
-                   a.purpose, a.status,
-                   p.first_name, p.last_name
-            FROM appointments a
-            JOIN patients p ON a.patient_id = p.patient_id
-            WHERE a.doctor_id = %s
-            ORDER BY a.appointment_date, a.appointment_time
-        """, (doctorId,))
+                    SELECT a.appointment_id, a.patient_id, a.appointment_date,
+                           TO_CHAR(a.appointment_time, 'HH24:MI') AS appointment_time,
+                           a.purpose, a.status,
+                           p.first_name, p.last_name
+                    FROM appointments a
+                    LEFT JOIN patients p ON a.patient_id = p.patient_id
+                    WHERE a.doctor_id = %s
+                    ORDER BY a.appointment_date, a.appointment_time
+                """, (doctorId,))
 
         appointments = cursor.fetchall()
         return jsonify(appointments), 200

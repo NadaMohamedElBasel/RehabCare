@@ -66,7 +66,8 @@ import { useParams } from "react-router-dom";
 import "./AdminLayout.css";
 
 import AdminStats from "./AdminStats";
-import AdminDoctors from "./AdminDoctors";
+import DoctorManager from "./DoctorManager";
+import BillingManager from "./BillingManager";
 
 
 function AdminDashboard() {
@@ -79,18 +80,11 @@ function AdminDashboard() {
         return <AdminStats />;
 
       case "doctors":
-        return (
-          <div className="stat-card">
-            🧑‍⚕️ <strong>Doctors Management</strong>
-          </div>
-        );
+          return <DoctorManager adminId={adminId} />;
 
       case "billing":
-        return (
-          <div className="stat-card">
-            💳 <strong>Billing Management</strong>
-          </div>
-        );
+        return <BillingManager adminId={adminId} />;
+
 
       default:
         return null;

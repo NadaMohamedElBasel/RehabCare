@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import './admin/DoctorManager.css';
+import './DoctorManager.css';
 
 // Configuration: Clinic hours and slot duration (must match backend)
 const BUSINESS_START_HOUR = 9;
@@ -42,7 +42,7 @@ const formatTime = (hour, minute = 0) => {
     return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
 };
 
-function StaffAppointmentManager() {
+function DoctorManager() {
     // Current Doctor ID State (Allows scrolling/changing IDs)
     const [currentDoctorId, setCurrentDoctorId] = useState(1);
 
@@ -347,4 +347,4 @@ function StaffAppointmentManager() {
     );
 }
 
-export default StaffAppointmentManager;
+export default DoctorManager;
