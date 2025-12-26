@@ -78,3 +78,28 @@
   background: #f8f9fa;
   border-radius: 8px;
 }
+
+.record-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.record-grid div {
+  background: #f8f9fb;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.doctor-notes {
+  grid-column: 1 / -1; 
+  background: #eef3ff;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.doctor-notes p {
+  margin: 6px 0 0;
+}

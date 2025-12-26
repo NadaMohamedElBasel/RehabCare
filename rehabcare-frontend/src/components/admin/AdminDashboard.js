@@ -1,27 +1,12 @@
 // import React, { useState } from "react";
-// import { useParams } from "react-router-dom";
 // import "./AdminLayout.css";
 
 // import AdminStats from "./AdminStats";
 // import AdminDoctors from "./AdminDoctors";
-// import AdminBilling from "./AdminBilling";
+// import AdminAppointment from "./AdminAppointment";
 
 // function AdminDashboard() {
-//   const { adminId } = useParams();
-//   const [activeTab, setActiveTab] = useState("stats");
-
-//   const renderContent = () => {
-//     switch (activeTab) {
-//       case "stats":
-//         return <AdminStats />;
-//       case "doctors":
-//         return <AdminDoctors />;
-//       case "billing":
-//         return <AdminBilling />;
-//       default:
-//         return null;
-//     }
-//   };
+//   const [activeTab, setActiveTab] = useState("dashboard");
 
 //   return (
 //     <div className="dashboard-container">
@@ -30,8 +15,8 @@
 
 //         <div className="tabs">
 //           <button
-//             className={activeTab === "stats" ? "active" : ""}
-//             onClick={() => setActiveTab("stats")}
+//             className={activeTab === "dashboard" ? "active" : ""}
+//             onClick={() => setActiveTab("dashboard")}
 //           >
 //             Dashboard
 //           </button>
@@ -44,6 +29,13 @@
 //           </button>
 
 //           <button
+//             className={activeTab === "appointments" ? "active" : ""}
+//             onClick={() => setActiveTab("appointments")}
+//           >
+//             Appointments
+//           </button>
+
+//           <button
 //             className={activeTab === "billing" ? "active" : ""}
 //             onClick={() => setActiveTab("billing")}
 //           >
@@ -53,43 +45,34 @@
 //       </nav>
 
 //       <main className="dashboard-content">
-//         {renderContent()}
+//         <div className="dashboard-frame">
+//           {activeTab === "dashboard" && <AdminStats />}
+//           {activeTab === "doctors" && <AdminDoctors />}
+//           {activeTab === "appointments" && <AdminAppointment />}
+
+//           {activeTab === "billing" && (
+//             <div className="page">
+//               <h3>💳 Billing Management</h3>
+//               <p className="subtitle">Manage invoices and payments</p>
+//             </div>
+//           )}
+//         </div>
 //       </main>
 //     </div>
 //   );
 // }
 
 // export default AdminDashboard;
-
 import React, { useState } from "react";
-import { useParams } from "react-router-dom";
 import "./AdminLayout.css";
 
 import AdminStats from "./AdminStats";
-import DoctorManager from "./DoctorManager";
-import BillingManager from "./BillingManager";
-
+import AdminDoctors from "./AdminDoctors";
+import AdminAppointment from "./AdminAppointment";
+import AdminAnalytics from "./AdminAnalytics";
 
 function AdminDashboard() {
-  const { adminId } = useParams();
-  const [activeTab, setActiveTab] = useState("stats");
-
-  const renderContent = () => {
-    switch (activeTab) {
-      case "stats":
-        return <AdminStats />;
-
-      case "doctors":
-          return <DoctorManager adminId={adminId} />;
-
-      case "billing":
-        return <BillingManager adminId={adminId} />;
-
-
-      default:
-        return null;
-    }
-  };
+  const [activeTab, setActiveTab] = useState("dashboard");
 
   return (
     <div className="dashboard-container">
@@ -98,8 +81,8 @@ function AdminDashboard() {
 
         <div className="tabs">
           <button
-            className={activeTab === "stats" ? "active" : ""}
-            onClick={() => setActiveTab("stats")}
+            className={activeTab === "dashboard" ? "active" : ""}
+            onClick={() => setActiveTab("dashboard")}
           >
             Dashboard
           </button>
@@ -112,16 +95,42 @@ function AdminDashboard() {
           </button>
 
           <button
+            className={activeTab === "appointments" ? "active" : ""}
+            onClick={() => setActiveTab("appointments")}
+          >
+            Appointments
+          </button>
+
+          <button
             className={activeTab === "billing" ? "active" : ""}
             onClick={() => setActiveTab("billing")}
           >
             Billing
           </button>
+
+          <button
+            className={activeTab === "analytics" ? "active" : ""}
+            onClick={() => setActiveTab("analytics")}
+          >
+            Analytics
+          </button>
         </div>
       </nav>
 
       <main className="dashboard-content">
-        {renderContent()}
+        <div className="dashboard-frame">
+          {activeTab === "dashboard" && <AdminStats />}
+          {activeTab === "doctors" && <AdminDoctors />}
+          {activeTab === "appointments" && <AdminAppointment />}
+          {activeTab === "analytics" && <AdminAnalytics />}
+
+          {activeTab === "billing" && (
+            <div className="page">
+              <h3>💳 Billing Management</h3>
+              <p className="subtitle">Manage invoices and payments</p>
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );

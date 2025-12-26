@@ -143,7 +143,9 @@ CREATE TABLE prescriptions (
 -- CASCADE;
 
 
--- DELETE FROM users;
+
+
+-- DELETE FROM Admin;
 
 
 -- INSERT INTO users (username, password_hash, email, role)

@@ -7,8 +7,7 @@ import CDSSModule from "./CDSSModule";
 import DICOMViewer from "./DICOMViewer";
 import DoctorAppointments from './DoctorAppointments';
 import DoctorPrescriptions from './DoctorPrescriptions';
-import MedicalRecords from '../MedicalRecords';
-import DoctorPatients from "./DoctorPatients";
+import DoctorMedicalRecords from './DoctorMedicalRecords';
 
 
 function DoctorProfile() {
@@ -186,17 +185,13 @@ function DoctorProfile() {
         return <DoctorPrescriptions doctorId={doctorId || localStorage.getItem('doctorId')} />;
 
       case 'records':
-        return <MedicalRecords doctorView={true} />;
+        return <DoctorMedicalRecords doctorId={doctorId || localStorage.getItem('doctorId')} />;
 
       case 'cdss':
         return <CDSSModule doctorId={doctorId || localStorage.getItem('doctorId')} />;
 
       case 'dicom':
         return <DICOMViewer doctorId={doctorId || localStorage.getItem('doctorId')} />;
-
-      case 'patients':
-        return <DoctorPatients doctorId={doctorId || localStorage.getItem('doctorId')} />;
-      
 
       default:
         return null;
@@ -212,11 +207,10 @@ function DoctorProfile() {
         <div className="tabs">
           <button className={activeTab === 'profile' ? 'active' : ''} onClick={() => setActiveTab('profile')}>Profile</button>
           <button className={activeTab === 'appointments' ? 'active' : ''} onClick={() => setActiveTab('appointments')}>Appointments</button>
-          <button className={activeTab === 'prescriptions' ? 'active' : ''} onClick={() => setActiveTab('prescriptions')}>Prescriptions</button>
           <button className={activeTab === 'records' ? 'active' : ''} onClick={() => setActiveTab('records')}>Medical Records</button>
+          <button className={activeTab === 'prescriptions' ? 'active' : ''} onClick={() => setActiveTab('prescriptions')}>Prescriptions</button>
           <button className={activeTab === 'cdss' ? 'active' : ''} onClick={() => setActiveTab('cdss')}>CDSS</button>
           <button className={activeTab === 'dicom' ? 'active' : ''} onClick={() => setActiveTab('dicom')}>DICOM Viewer</button>
-          <button className={activeTab === 'patients' ? 'active' : ''} onClick={() => setActiveTab('patients')}>My Patients</button>
 
         </div>
       </nav>
