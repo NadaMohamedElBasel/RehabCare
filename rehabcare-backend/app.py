@@ -1,3 +1,15 @@
+
+'''
+new run script:
+-inside rehabcare-frontend:
+npm install
+-incide Dicom:
+npm install
+-inside rehabcare-frontend:
+npm run start:all
+'''
+
+
 # app.py
 import bcrypt
 from flask import Flask, request, jsonify
