@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import './StaffAppointmentManager.css';
+import './admin/AdminAppointment.css';
 
 // Configuration: Clinic hours and slot duration (must match backend)
 const BUSINESS_START_HOUR = 9;

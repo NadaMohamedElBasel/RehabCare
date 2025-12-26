@@ -70,6 +70,7 @@ import AdminStats from "./AdminStats";
 import AdminDoctors from "./AdminDoctors";
 import AdminAppointment from "./AdminAppointment";
 import AdminAnalytics from "./AdminAnalytics";
+import AdminBilling from "./AdminBilling";
 
 function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -124,12 +125,7 @@ function AdminDashboard() {
           {activeTab === "appointments" && <AdminAppointment />}
           {activeTab === "analytics" && <AdminAnalytics />}
 
-          {activeTab === "billing" && (
-            <div className="page">
-              <h3>💳 Billing Management</h3>
-              <p className="subtitle">Manage invoices and payments</p>
-            </div>
-          )}
+          {activeTab === "billing" && <AdminBilling />}
         </div>
       </main>
     </div>
