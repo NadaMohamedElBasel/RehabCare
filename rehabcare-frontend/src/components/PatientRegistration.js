@@ -16,28 +16,56 @@ function PatientRegistration() {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+  const phoneRegex = /^01[0-9]{9}$/;
+  const today = new Date();
+  const maxDate = today.toISOString().split("T")[0]; 
+
+  const minDate = new Date(
+    today.getFullYear() - 120,
+    today.getMonth(),
+    today.getDate()
+  ).toISOString().split("T")[0];
+
+
 
   const handleInputChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const response = await axios.post('http://localhost:5000/api/register', formData);
-      setSuccess(response.data.message);
-      setError('');
+  e.preventDefault();
 
-      // Store patientId in localStorage
-      localStorage.setItem('patientId', response.data.patientId);
-      
-      // Redirect to patient dashboard with the new patientId
-      navigate(`/patient-dashboard/${response.data.patientId}`);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Registration failed');
-      setSuccess('');
-    }
-  };
+  // ===== EMAIL VALIDATION =====
+  if (!emailRegex.test(formData.email)) {
+    setError("Email must be a valid Gmail address (example@gmail.com)");
+    setSuccess('');
+    return;
+  }
+  if (!phoneRegex.test(formData.phoneNumber)) {
+  setError("Phone number must be 11 digits and start with 01");
+  setSuccess('');
+  return;
+}
+
+
+  try {
+    const response = await axios.post(
+      'http://localhost:5000/api/register',
+      formData
+    );
+
+    setSuccess(response.data.message);
+    setError('');
+
+    localStorage.setItem('patientId', response.data.patientId);
+    navigate(`/patient-dashboard/${response.data.patientId}`);
+
+  } catch (err) {
+    setError(err.response?.data?.error || 'Registration failed');
+    setSuccess('');
+  }
+};
 
   return (
     <div className="registration-container">
@@ -64,9 +92,12 @@ function PatientRegistration() {
           name="email"
           placeholder="Email"
           value={formData.email}
-          onChange={handleInputChange}
+          onChange={(e) =>
+            setFormData({ ...formData, email: e.target.value.toLowerCase() })
+          }
           required
         />
+
         <input
           type="password"
           name="password"
@@ -80,18 +111,26 @@ function PatientRegistration() {
           name="dateOfBirth"
           value={formData.dateOfBirth}
           onChange={handleInputChange}
+          min={minDate}
+          max={maxDate}
+          required
         />
+
 
         <div className="form-group">
           <input
             type="tel"
             name="phoneNumber"
-            placeholder="Phone Number"
+            placeholder="01XXXXXXXXX"
             value={formData.phoneNumber}
-            onChange={handleInputChange}
-            pattern="[0-9]+"
+            onChange={(e) => {
+              const value = e.target.value.replace(/\D/g, '');
+              setFormData({ ...formData, phoneNumber: value });
+            }}
+            maxLength={11}
             required
           />
+
         </div>
 
         <div className="form-group">

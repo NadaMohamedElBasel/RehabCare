@@ -14,7 +14,6 @@ function AdminDoctors() {
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [search, setSearch] = useState("");
 
-  // ================= GET DOCTORS =================
   const fetchDoctors = async () => {
     try {
       const res = await axios.get(`${API}/api/admin/doctors`);
@@ -32,7 +31,6 @@ function AdminDoctors() {
     fetchDoctors();
   }, []);
 
-  // ================= SEARCH =================
   useEffect(() => {
     const q = search.toLowerCase();
     setFilteredDoctors(
@@ -46,7 +44,6 @@ function AdminDoctors() {
     );
   }, [search, doctors]);
 
-  // ================= DELETE =================
   const deleteDoctor = async (doctorId) => {
     if (!window.confirm("Are you sure you want to delete this doctor?")) return;
 
@@ -56,6 +53,11 @@ function AdminDoctors() {
     } catch (err) {
       alert("Delete failed");
     }
+  };
+
+  const closePanel = () => {
+    setPanelMode(null);
+    setSelectedDoctor(null);
   };
 
   return (
@@ -106,38 +108,37 @@ function AdminDoctors() {
         </div>
       </div>
 
-      {/* ===== TOP PANEL (ADD / EDIT) ===== */}
+      {/* ===== MODAL TAB (ADD / EDIT) ===== */}
       {panelMode && (
-        <div className="top-panel">
-          <div className="top-panel-header">
-            <h4 className="panel-title">
-                {panelMode === "add" ? " Add Doctor" : " Edit Doctor"}
-            </h4>
+        <div className="top-panel" onClick={closePanel}>
+          <div
+            className="admin-modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* header inside card */}
+            <div className="panel-header">
+              <h4>
+                {panelMode === "add" ? "Add Doctor" : "Edit Doctor"}
+              </h4>
 
-            <button
-                className="close-btn"
-                onClick={() => {
-                setPanelMode(null);
-                setSelectedDoctor(null);
-                }}
-            >
+              <button className="close-btn" onClick={closePanel}>
                 ✕
-            </button>
+              </button>
             </div>
 
-          <DoctorForm
-            mode={panelMode}
-            doctor={selectedDoctor}
-            onCancel={() => {
-              setPanelMode(null);
-              setSelectedDoctor(null);
-            }}
-            onSuccess={() => {
-              fetchDoctors();
-              setPanelMode(null);
-              setSelectedDoctor(null);
-            }}
-          />
+            {/* body (scroll) */}
+            <div className="admin-modal-body">
+              <DoctorForm
+                mode={panelMode}
+                doctor={selectedDoctor}
+                onCancel={closePanel}
+                onSuccess={() => {
+                  fetchDoctors();
+                  closePanel();
+                }}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -151,7 +152,6 @@ function AdminDoctors() {
           <table className="doctors-table">
             <thead>
               <tr>
-
                 <th>ID</th>
                 <th>Name</th>
                 <th>Specialization</th>
@@ -160,15 +160,14 @@ function AdminDoctors() {
                 <th style={{ textAlign: "center" }}>Actions</th>
               </tr>
             </thead>
+
             <tbody>
-              {filteredDoctors.map((d, index) => (
+              {filteredDoctors.map((d) => (
                 <tr key={d.doctor_id}>
                   <td>{d.doctor_id}</td>
                   <td>{d.first_name} {d.last_name}</td>
                   <td>
-                    <span className="badge">
-                      {d.specialization || "N/A"}
-                    </span>
+                    <span className="badge">{d.specialization || "N/A"}</span>
                   </td>
                   <td className="email-cell">{d.email}</td>
                   <td>{d.phone || "-"}</td>
@@ -195,6 +194,7 @@ function AdminDoctors() {
                 </tr>
               ))}
             </tbody>
+
           </table>
         </div>
       )}

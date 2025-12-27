@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
-import "../Prescriptions.css";
+import "./Doctorprescription.css";
 
 /* ================= MEDICATION CATEGORIES ================= */
 const MEDICATION_CATEGORIES = {
-    pain: {
+  pain: {
     label: "Pain Relief",
     items: [
       { name: "Paracetamol", form: "tablet" },
@@ -99,11 +99,13 @@ function DoctorPrescriptions({ doctorId }) {
   const [exerciseCategory, setExerciseCategory] = useState("");
   const [exerciseMode, setExerciseMode] = useState("");
 
+  // ✅ sets as TEXT
   const [formData, setFormData] = useState({
     patientId: "",
     type: "medication",
     medicationName: "",
     dosage: "",
+    sets: "", // ✅ TEXT
     instructions: "",
     frequency: "",
     startDate: "",
@@ -113,10 +115,112 @@ function DoctorPrescriptions({ doctorId }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  /* ================= SPEECH TO TEXT (INSTRUCTIONS) ================= */
+  const recognitionRef = useRef(null);
+  const instructionsBaseRef = useRef("");
+  const [sttSupported, setSttSupported] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [interimText, setInterimText] = useState("");
+
+  useEffect(() => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setSttSupported(false);
+      return;
+    }
+
+    setSttSupported(true);
+
+    const rec = new SpeechRecognition();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+
+    rec.onresult = (event) => {
+      let finalChunk = "";
+      let interimChunk = "";
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalChunk += transcript;
+        else interimChunk += transcript;
+      }
+
+      if (finalChunk) {
+        instructionsBaseRef.current = `${instructionsBaseRef.current}${finalChunk}`.replace(
+          /\s+/g,
+          " "
+        );
+
+        setFormData((prev) => ({
+          ...prev,
+          instructions: instructionsBaseRef.current.trim(),
+        }));
+      }
+
+      setInterimText(interimChunk.trim());
+    };
+
+    rec.onerror = () => {
+      setError("Speech recognition error. Check microphone permission.");
+      setIsListening(false);
+    };
+
+    rec.onend = () => {
+      setIsListening(false);
+      setInterimText("");
+    };
+
+    recognitionRef.current = rec;
+
+    return () => {
+      try {
+        rec.stop();
+      } catch {}
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  const startDictation = () => {
+    if (!sttSupported || !recognitionRef.current) {
+      setError("Speech-to-text not supported. Use Chrome/Edge.");
+      return;
+    }
+    if (isListening) return;
+
+    setError("");
+    setInterimText("");
+
+    const base = (formData.instructions || "").trim();
+    instructionsBaseRef.current = base ? base + " " : "";
+
+    try {
+      recognitionRef.current.lang = "en-US";
+      recognitionRef.current.start();
+      setIsListening(true);
+    } catch {
+      setError("Could not start dictation. Try again.");
+    }
+  };
+
+  const stopDictation = () => {
+    if (!recognitionRef.current) return;
+    try {
+      recognitionRef.current.stop();
+    } catch {}
+  };
+
   /* ================= LOAD DATA ================= */
   useEffect(() => {
+    if (!doctorId) return;
     fetchPatients();
     fetchPrescriptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doctorId]);
 
   const fetchPatients = useCallback(async () => {
@@ -134,7 +238,7 @@ function DoctorPrescriptions({ doctorId }) {
   }, [doctorId]);
 
   const calcDurationDays = () => {
-      const diff =
+    const diff =
       (new Date(formData.endDate) - new Date(formData.startDate)) /
       (1000 * 60 * 60 * 24);
     return diff >= 0 ? `${diff + 1} days` : "";
@@ -143,57 +247,65 @@ function DoctorPrescriptions({ doctorId }) {
   const handleChange = (e) =>
     setFormData({ ...formData, [e.target.name]: e.target.value });
 
+  const resetForm = () => {
+    stopDictation();
+    setError("");
+    setSuccess("");
+    setFormData({
+      patientId: "",
+      type: "medication",
+      medicationName: "",
+      dosage: "",
+      sets: "",
+      instructions: "",
+      frequency: "",
+      startDate: "",
+      endDate: "",
+    });
+    setMedCategory("");
+    setDosageForm("");
+    setExerciseCategory("");
+    setExerciseMode("");
+    instructionsBaseRef.current = "";
+    setInterimText("");
+  };
+
+  const openNewPrescription = () => {
+    resetForm();
+    setIsModalOpen(true);
+  };
+
   const handleCreate = async (e) => {
-  e.preventDefault();
-  setError("");
+    e.preventDefault();
+    setError("");
+    setSuccess("");
 
-  if (!formData.patientId) {
-    setError("Please select patient");
-    return;
-  }
+    if (!formData.patientId) return setError("Please select patient");
+    if (!formData.medicationName)
+      return setError("Please select medication or exercise");
+    if (!formData.dosage) return setError("Dosage / reps / hold is required");
 
-  if (!formData.medicationName) {
-    setError("Please select medication or exercise");
-    return;
-  }
+    // ✅ require sets for exercise
+    if (formData.type === "exercise" && !formData.sets)
+      return setError("Sets is required for exercises");
 
-  if (!formData.dosage) {
-    setError("Dosage / reps / hold is required");
-    return;
-  }
+    if (new Date(formData.endDate) < new Date(formData.startDate))
+      return setError("End date must be after start date");
 
-  if (new Date(formData.endDate) < new Date(formData.startDate)) {
-    setError("End date must be after start date");
-    return;
-  }
-
-  setLoading(true);
+    setLoading(true);
 
     try {
       await axios.post("http://localhost:5000/api/doctor/prescriptions", {
         doctorId,
         ...formData,
+        sets: formData.type === "exercise" ? Number(formData.sets) : null,
         duration: calcDurationDays(),
       });
 
+      stopDictation();
       setSuccess("✅ Prescription created successfully");
-      fetchPrescriptions();
-
-      setFormData({
-        patientId: "",
-        type: formData.type,
-        medicationName: "",
-        dosage: "",
-        instructions: "",
-        frequency: "",
-        startDate: "",
-        endDate: "",
-      });
-
-      setMedCategory("");
-      setDosageForm("");
-      setExerciseCategory("");
-      setExerciseMode("");
+      await fetchPrescriptions();
+      setIsModalOpen(false);
     } catch {
       setError("Failed to create prescription");
     } finally {
@@ -201,336 +313,526 @@ function DoctorPrescriptions({ doctorId }) {
     }
   };
 
-
   const updateStatus = async (id, status) => {
-  try {
-    await axios.put(
-      `http://localhost:5000/api/prescriptions/${id}`,
-      { status }
-    );
-    fetchPrescriptions();
-  } catch {
-    setError("Failed to update prescription status");
-  }
-};
+    try {
+      await axios.put(`http://localhost:5000/api/prescriptions/${id}`, {
+        status,
+      });
+      fetchPrescriptions();
+    } catch {
+      setError("Failed to update prescription status");
+    }
+  };
 
+  const filteredPrescriptions = prescriptions.filter((p) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      String(p.patient_id || "").toLowerCase().includes(q) ||
+      String(p.medication_name || "").toLowerCase().includes(q) ||
+      String(p.type || "").toLowerCase().includes(q) ||
+      String(p.status || "").toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="doctor-prescriptions-container">
-      <h2>Doctor Prescriptions</h2>
+      {/* ===== HEADER ===== */}
+      <div className="doctors-header">
+        <div className="header-left">
+          <h3>Doctor Prescriptions</h3>
+        </div>
 
-      {/* ===== TABS ===== */}
-      <div className="prescription-tabs">
-        <button
-          type="button"
-          className={formData.type === "medication" ? "active" : ""}
-          onClick={() => {
-            setFormData({
-              ...formData,
-              type: "medication",
-              medicationName: "",
-              dosage: "",
-              frequency: "",
-            });
-            setExerciseCategory("");
-            setExerciseMode("");
-          }}
-        >
-          MEDICATION
-        </button>
+        <div className="header-actions">
+          <div className="fb-search">
+            <span className="fb-icon">
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                />
+              </svg>
+            </span>
 
-        <button
-          type="button"
-          className={formData.type === "exercise" ? "active" : ""}
-          onClick={() => {
-            setFormData({
-              ...formData,
-              type: "exercise",
-              medicationName: "",
-              dosage: "",
-              frequency: "",
-            });
-            setMedCategory("");
-            setDosageForm("");
-          }}
-        >
-          EXERCISE
-        </button>
+            <input
+              type="text"
+              placeholder="Search prescriptions"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="button"
+            className="fb-add-btn"
+            title="New Prescription"
+            onClick={openNewPrescription}
+          >
+            +
+          </button>
+        </div>
       </div>
 
-      <form onSubmit={handleCreate} className="prescription-form">
-        {/* PATIENT */}
-        <label>Patient</label>
-        <select
-          name="patientId"
-          value={formData.patientId}
-          onChange={handleChange}
-          required
-        >
-          <option value="">Select Patient</option>
-          {patients.map((p) => (
-            <option key={p.patient_id} value={p.patient_id}>
-              {p.first_name} {p.last_name}
-            </option>
-          ))}
-        </select>
+      {/* ===== TABLE ===== */}
+      <section className="management-card">
+        <div className="management-header">
+          <h3>Prescriptions Written</h3>
+        </div>
 
-        {/* ================= MEDICATION ================= */}
-        {formData.type === "medication" && (
-          <>
-            <label>Medication Category</label>
-            <select
-              value={medCategory}
-              onChange={(e) => {
-                setMedCategory(e.target.value);
-                setDosageForm("");
-                setFormData({ ...formData, medicationName: "", dosage: "" });
-              }}
-              required
-            >
-              <option value="">Select Category</option>
-              {Object.entries(MEDICATION_CATEGORIES).map(([k, c]) => (
-                <option key={k} value={k}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+        {filteredPrescriptions.length === 0 ? (
+          <p className="empty">No prescriptions found.</p>
+        ) : (
+          <div className="table-wrapper">
+            <table className="doctors-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Patient</th>
+                  <th>Type</th>
+                  <th>Name</th>
+                  <th>Dosage</th>
+                  <th>Frequency</th>
+                  <th>Duration</th>
+                  <th>Status</th>
+                  <th style={{ textAlign: "center" }}>Actions</th>
+                </tr>
+              </thead>
 
-            <label>Medication</label>
-            <select
-              value={formData.medicationName}
-              disabled={!medCategory}
-              onChange={(e) => {
-                const selected =
-                  MEDICATION_CATEGORIES[medCategory].items.find(
-                    (m) => m.name === e.target.value
-                  );
-                setFormData({
-                  ...formData,
-                  medicationName: selected.name,
-                });
-                setDosageForm(selected.form);
-              }}
-              required
-            >
-              <option value="">Select Medication</option>
-              {medCategory &&
-                MEDICATION_CATEGORIES[medCategory].items.map((m) => (
-                  <option key={m.name}>{m.name}</option>
+              <tbody>
+                {filteredPrescriptions.map((p) => (
+                  <tr key={p.prescription_id}>
+                    <td>{p.issued_date || "-"}</td>
+                    <td>#{p.patient_id}</td>
+
+                    <td>
+                      <span className="badge">
+                        {p.type === "medication" ? "Medication" : "Exercise"}
+                      </span>
+                    </td>
+
+                    <td>{p.medication_name}</td>
+                    <td>
+                      {p.dosage || "-"}
+                      {p.type === "exercise" && p.sets
+                        ? ` • ${p.sets} set(s)`
+                        : ""}
+                    </td>
+                    <td>{p.frequency || "-"}</td>
+                    <td>{p.duration || "-"}</td>
+
+                    <td>
+                      <span className={`status-pill ${p.status}`}>
+                        {String(p.status || "").toUpperCase()}
+                      </span>
+                    </td>
+
+                    <td>
+                      <div className="actions">
+                        <button
+                          className="edit-btn"
+                          disabled={p.status !== "active"}
+                          onClick={() =>
+                            updateStatus(p.prescription_id, "completed")
+                          }
+                        >
+                          Complete
+                        </button>
+
+                        <button
+                          className="delete-btn"
+                          disabled={p.status !== "active"}
+                          onClick={() =>
+                            updateStatus(p.prescription_id, "cancelled")
+                          }
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 ))}
-            </select>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-            {dosageForm === "tablet" && (
+      {/* ===== MODAL: NEW PRESCRIPTION FORM ===== */}
+      {isModalOpen && (
+        <div className="modal-overlay" onMouseDown={() => setIsModalOpen(false)}>
+          <div className="modal-card" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>New Prescription</h3>
+              <button
+                className="modal-close"
+                onClick={() => setIsModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* ===== TABS ===== */}
+            <div className="prescription-tabs">
+              <button
+                type="button"
+                className={formData.type === "medication" ? "active" : ""}
+                onClick={() => {
+                  stopDictation();
+                  setFormData((prev) => ({
+                    ...prev,
+                    type: "medication",
+                    medicationName: "",
+                    dosage: "",
+                    sets: "",
+                    frequency: "",
+                  }));
+                  setExerciseCategory("");
+                  setExerciseMode("");
+                  setInterimText("");
+                  instructionsBaseRef.current = (formData.instructions || "")
+                    .trim()
+                    ? (formData.instructions || "").trim() + " "
+                    : "";
+                }}
+              >
+                MEDICATION
+              </button>
+
+              <button
+                type="button"
+                className={formData.type === "exercise" ? "active" : ""}
+                onClick={() => {
+                  stopDictation();
+                  setFormData((prev) => ({
+                    ...prev,
+                    type: "exercise",
+                    medicationName: "",
+                    dosage: "",
+                    sets: "",
+                    frequency: "",
+                  }));
+                  setMedCategory("");
+                  setDosageForm("");
+                  setInterimText("");
+                  instructionsBaseRef.current = (formData.instructions || "")
+                    .trim()
+                    ? (formData.instructions || "").trim() + " "
+                    : "";
+                }}
+              >
+                EXERCISE
+              </button>
+            </div>
+
+            <form onSubmit={handleCreate} className="prescription-form">
+              <label>Patient</label>
               <select
-                name="dosage"
-                value={formData.dosage}
+                name="patientId"
+                value={formData.patientId}
                 onChange={handleChange}
                 required
               >
-                <option value="">Select Dosage</option>
-                <option value="1 tablet">1 Tablet</option>
-                <option value="2 tablets">2 Tablets</option>
-              </select>
-            )}
-          </>
-        )}
-
-        {/* ================= EXERCISE ================= */}
-        {formData.type === "exercise" && (
-          <>
-            <label>Exercise Category</label>
-            <select
-              value={exerciseCategory}
-              onChange={(e) => {
-                setExerciseCategory(e.target.value);
-                setFormData({ ...formData, medicationName: "", dosage: "" });
-              }}
-              required
-            >
-              <option value="">Select Category</option>
-              {Object.entries(EXERCISE_CATEGORIES).map(([k, c]) => (
-                <option key={k} value={k}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-
-            <label>Exercise</label>
-            <select
-              value={formData.medicationName}
-              disabled={!exerciseCategory}
-              onChange={(e) => {
-                const selected =
-                  EXERCISE_CATEGORIES[exerciseCategory].items.find(
-                    (x) => x.name === e.target.value
-                  );
-                setFormData({ ...formData, medicationName: selected.name });
-                setExerciseMode(selected.mode);
-              }}
-              required
-            >
-              <option value="">Select Exercise</option>
-              {exerciseCategory &&
-                EXERCISE_CATEGORIES[exerciseCategory].items.map((e) => (
-                  <option key={e.name}>{e.name}</option>
+                <option value="">Select Patient</option>
+                {patients.map((p) => (
+                  <option key={p.patient_id} value={p.patient_id}>
+                    {p.first_name} {p.last_name}
+                  </option>
                 ))}
-            </select>
+              </select>
 
-            {exerciseMode === "reps" && (
+              {formData.type === "medication" && (
+                <>
+                  <label>Medication Category</label>
+                  <select
+                    value={medCategory}
+                    onChange={(e) => {
+                      setMedCategory(e.target.value);
+                      setDosageForm("");
+                      setFormData((prev) => ({
+                        ...prev,
+                        medicationName: "",
+                        dosage: "",
+                        sets: "",
+                      }));
+                    }}
+                    required
+                  >
+                    <option value="">Select Category</option>
+                    {Object.entries(MEDICATION_CATEGORIES).map(([k, c]) => (
+                      <option key={k} value={k}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label>Medication</label>
+                  <select
+                    value={formData.medicationName}
+                    disabled={!medCategory}
+                    onChange={(e) => {
+                      const selected = MEDICATION_CATEGORIES[medCategory].items.find(
+                        (m) => m.name === e.target.value
+                      );
+                      setFormData((prev) => ({
+                        ...prev,
+                        medicationName: selected.name,
+                      }));
+                      setDosageForm(selected.form);
+                    }}
+                    required
+                  >
+                    <option value="">Select Medication</option>
+                    {medCategory &&
+                      MEDICATION_CATEGORIES[medCategory].items.map((m) => (
+                        <option key={m.name}>{m.name}</option>
+                      ))}
+                  </select>
+
+                  {dosageForm === "tablet" && (
+                    <select
+                      name="dosage"
+                      value={formData.dosage}
+                      onChange={handleChange}
+                      required
+                    >
+                      <option value="">Select Dosage</option>
+                      <option value="1 tablet">1 Tablet</option>
+                      <option value="2 tablets">2 Tablets</option>
+                    </select>
+                  )}
+                </>
+              )}
+
+              {formData.type === "exercise" && (
+                <>
+                  <label>Exercise Category</label>
+                  <select
+                    value={exerciseCategory}
+                    onChange={(e) => {
+                      setExerciseCategory(e.target.value);
+                      setFormData((prev) => ({
+                        ...prev,
+                        medicationName: "",
+                        dosage: "",
+                        sets: "",
+                      }));
+                    }}
+                    required
+                  >
+                    <option value="">Select Category</option>
+                    {Object.entries(EXERCISE_CATEGORIES).map(([k, c]) => (
+                      <option key={k} value={k}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label>Exercise</label>
+                  <select
+                    value={formData.medicationName}
+                    disabled={!exerciseCategory}
+                    onChange={(e) => {
+                      const selected = EXERCISE_CATEGORIES[
+                        exerciseCategory
+                      ].items.find((x) => x.name === e.target.value);
+
+                      setFormData((prev) => ({
+                        ...prev,
+                        medicationName: selected.name,
+                        dosage: "",
+                        sets: "",
+                      }));
+                      setExerciseMode(selected.mode);
+                    }}
+                    required
+                  >
+                    <option value="">Select Exercise</option>
+                    {exerciseCategory &&
+                      EXERCISE_CATEGORIES[exerciseCategory].items.map((ex) => (
+                        <option key={ex.name}>{ex.name}</option>
+                      ))}
+                  </select>
+
+                  {/* ==================== reps ==================== */}
+                  {exerciseMode === "reps" && (
+                    <>
+                      <input
+                        type="number"
+                        placeholder="Repetitions"
+                        value={formData.dosage.replace(" reps", "")}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            dosage: `${e.target.value} reps`,
+                          }))
+                        }
+                        min="1"
+                        required
+                      />
+
+                      {/* ✅ sets TEXT input (digits only) */}
+                      <input
+                        type="text"
+                        name="sets"
+                        placeholder="Sets (e.g., 1 or 3)"
+                        value={formData.sets}
+                        onChange={(e) => {
+                          const onlyDigits = e.target.value.replace(/\D/g, "");
+                          setFormData((prev) => ({
+                            ...prev,
+                            sets: onlyDigits,
+                          }));
+                        }}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        required
+                      />
+                    </>
+                  )}
+
+                  {/* ==================== hold ==================== */}
+                  {exerciseMode === "hold" && (
+                    <>
+                      <input
+                        type="number"
+                        placeholder="Hold seconds"
+                        value={formData.dosage.replace(" sec", "")}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            dosage: `${e.target.value} sec`,
+                          }))
+                        }
+                        min="1"
+                        required
+                      />
+
+                      {/* ✅ sets TEXT input (digits only) */}
+                      <input
+                        type="text"
+                        name="sets"
+                        placeholder="Sets (e.g., 1 or 3)"
+                        value={formData.sets}
+                        onChange={(e) => {
+                          const onlyDigits = e.target.value.replace(/\D/g, "");
+                          setFormData((prev) => ({
+                            ...prev,
+                            sets: onlyDigits,
+                          }));
+                        }}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        required
+                      />
+                    </>
+                  )}
+                </>
+              )}
+
+              <label>Frequency</label>
+              <select
+                name="frequency"
+                value={formData.frequency}
+                onChange={handleChange}
+                required
+              >
+                 <option value="once_daily">Once daily</option>
+                 <option value="twice_daily">Twice daily</option>
+                 <option value="three_times_daily">3 times daily</option>
+                 <option value="four_times_daily">4 times daily</option>
+                 <option value="every_8_hours">Every 8 hours</option>
+                 <option value="every_12_hours">Every 12 hours</option>
+                 <option value="every_other_day">Every other day</option>
+                 <option value="weekly">Weekly</option>
+                 <option value="as_needed">As needed (PRN)</option>
+               </select>
+
+              <label
+                className="instructions-label"
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <span>Instructions</span>
+
+                <button
+                  type="button"
+                  className={`btn ${
+                    isListening ? "btn-secondary" : "btn-primary"
+                  }`}
+                  onClick={isListening ? stopDictation : startDictation}
+                  disabled={!sttSupported}
+                >
+                  {isListening ? "Stop 🎤" : "Dictate 🎤"}
+                </button>
+              </label>
+
+              <textarea
+                name="instructions"
+                value={formData.instructions}
+                onChange={handleChange}
+                placeholder="You can type or dictate here..."
+              />
+
+              {isListening && (
+                <small style={{ opacity: 0.8 }}>
+                  Listening… {interimText ? `(${interimText})` : ""}
+                </small>
+              )}
+
+              <label>Start Date</label>
               <input
-                type="number"
-                placeholder="Repetitions"
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    dosage: `${e.target.value} reps`,
-                  })
-                }
+                type="date"
+                className="date-input"
+                name="startDate"
+                value={formData.startDate}
+                onChange={handleChange}
                 required
               />
-            )}
 
-            {exerciseMode === "hold" && (
+              <label>End Date</label>
               <input
-                type="number"
-                placeholder="Hold seconds"
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    dosage: `${e.target.value} sec`,
-                  })
-                }
+                type="date"
+                className="date-input"
+                name="endDate"
+                value={formData.endDate}
+                onChange={handleChange}
                 required
               />
-            )}
-          </>
-        )}
-        <label>Frequency</label>
-        <select
-          name="frequency"
-          value={formData.frequency}
-          onChange={handleChange}
-          required
-        >
-          <option value="">Select Frequency</option>
-          <option value="daily">Daily</option>
-          <option value="3x_week">3 times / week</option>
-          <option value="alternate_days">Alternate days</option>
-        </select>
 
+              <p>Duration: {calcDurationDays()}</p>
 
-        <label>Instructions</label>
-        <textarea
-          name="instructions"
-          value={formData.instructions}
-          onChange={handleChange}
-        />
+              {error && <p className="error-text">{error}</p>}
+              {success && <p className="success-text">{success}</p>}
 
-        <label>Start Date</label>
-        <input
-          type="date"
-          name="startDate"
-          value={formData.startDate}
-          onChange={handleChange}
-          required
-        />
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  Cancel
+                </button>
 
-        <label>End Date</label>
-        <input
-          type="date"
-          name="endDate"
-          value={formData.endDate}
-          onChange={handleChange}
-          required
-        />
-
-        <p>Duration: {calcDurationDays()}</p>
-
-
-
-        <button disabled={loading} className="btn-primary">
-          {loading ? "Saving..." : "Create Prescription"}
-        </button>
-      </form>
-{/* ===== PRESCRIPTIONS TABLE ===== */}
-<section className="management-card">
-  <div className="management-header">
-    <h3>Prescriptions Written</h3>
-  </div>
-
-  {prescriptions.length === 0 ? (
-    <p className="empty">No prescriptions written.</p>
-  ) : (
-    <div className="table-wrapper">
-      <table className="doctors-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Patient</th>
-            <th>Type</th>
-            <th>Name</th>
-            <th>Dosage</th>
-            <th>Frequency</th>
-            <th>Duration</th>
-            <th>Status</th>
-            <th style={{ textAlign: "center" }}>Actions</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {prescriptions.map((p) => (
-            <tr key={p.prescription_id}>
-              <td>{p.issued_date || "-"}</td>
-              <td>#{p.patient_id}</td>
-
-              <td>
-                <span className="badge">
-                  {p.type === "medication" ? "Medication" : "Exercise"}
-                </span>
-              </td>
-
-              <td>{p.medication_name}</td>
-              <td>{p.dosage || "-"}</td>
-              <td>{p.frequency || "-"}</td>
-              <td>{p.duration || "-"}</td>
-
-              <td>
-                <span className={`status-pill ${p.status}`}>
-                  {p.status.toUpperCase()}
-                </span>
-              </td>
-
-              <td>
-                <div className="actions">
-                  <button
-                    className="edit-btn"
-                    disabled={p.status !== "active"}
-                    onClick={() =>
-                      updateStatus(p.prescription_id, "completed")
-                    }
-                  >
-                    Complete
-                  </button>
-
-                  <button
-                    className="delete-btn"
-                    disabled={p.status !== "active"}
-                    onClick={() =>
-                      updateStatus(p.prescription_id, "cancelled")
-                    }
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )}
-</section>
-
+                <button disabled={loading} className="btn-primary" type="submit">
+                  {loading ? "Saving..." : "Create Prescription"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

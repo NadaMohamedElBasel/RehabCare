@@ -61,7 +61,7 @@ CORS(app)
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "1234", # change to yours
+    "password": "Admin@123", # change to yours
     "host": "localhost",
     "port": "5432"
 }
@@ -2429,7 +2429,7 @@ if keras is not None:
     initialize_model()
 #################################################################
 if __name__ == '__main__':
-    # seed_admin()
+    seed_admin()
     print("=" * 60)
     print("CDSS MODEL STATUS:")
     print(f"  Model path: {MODEL_PATH}")

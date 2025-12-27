@@ -1,0 +1,604 @@
+/* ===================== Doctor Prescriptions Page  ===================== */
+
+.doctor-prescriptions-container,
+.doctor-page {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 95%;
+}
+
+/* ===================== HEADER  ===================== */
+
+.doctors-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 2px 14px rgba(15, 23, 42, 0.06);
+  margin-bottom: 18px;
+  border: none;
+}
+
+.header-left h3 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 900;
+  color: #0f172a;
+  border: none !important;
+  text-decoration: none !important;
+  box-shadow: none !important;
+}
+
+.header-left h3::after,
+.header-left h3::before {
+  content: none !important;
+  display: none !important;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Search  */
+.fb-search {
+  display: flex;
+  align-items: center;
+  background: #f0f2f5;
+  border-radius: 999px;
+  padding: 10px 14px;
+  width: 360px;
+  gap: 10px;
+}
+
+.fb-search input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  width: 100%;
+  color: #0f172a;
+}
+
+.fb-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #65676b;
+}
+
+/* Plus button  */
+.fb-add-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: none;
+  background: #f0f2f5;
+  font-size: 24px;
+  font-weight: 900;
+  color: #050505;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.2s ease;
+}
+
+.fb-add-btn:hover {
+  background: #e4e6eb;
+  transform: translateY(-1px);
+}
+
+/* ===================== OPTIONAL: keep support for old header classes ===================== */
+
+.page-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 2px 14px rgba(15, 23, 42, 0.06);
+  margin-bottom: 18px;
+  border: none;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 900;
+  color: #0f172a;
+  border: none !important;
+  text-decoration: none !important;
+  padding: 0 !important;
+}
+
+.page-title::after,
+.page-title::before {
+  content: none !important;
+  display: none !important;
+}
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Old search-pill -> make it match admin */
+.search-pill {
+  display: flex;
+  align-items: center;
+  background: #f0f2f5;
+  border-radius: 999px;
+  padding: 10px 14px;
+  width: 360px;
+  gap: 10px;
+}
+
+.search-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #65676b;
+}
+
+.search-pill input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  width: 100%;
+  color: #0f172a;
+}
+
+.icon-plus-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: none;
+  background: #f0f2f5;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.2s ease;
+  font-size: 24px;
+  font-weight: 900;
+  color: #050505;
+}
+
+.icon-plus-btn:hover {
+  background: #e4e6eb;
+  transform: translateY(-1px);
+}
+
+/* ===================== TABLE CARD ===================== */
+
+.management-card {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+  box-shadow: 0 2px 14px rgba(15, 23, 42, 0.04);
+}
+
+.management-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 14px;
+}
+
+.doctors-table {
+  width: 100%;
+  min-width: 1000px;
+  border-collapse: collapse;
+}
+
+.doctors-table th,
+.doctors-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+}
+
+.doctors-table thead {
+  background: #fafafa;
+}
+
+.badge {
+  background: #e6f4ff;
+  color: #1677ff;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Status pills */
+.status-pill {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.status-pill.active {
+  background: #16a34a;
+  color: #fff;
+}
+
+.status-pill.completed {
+  background: #2563eb;
+  color: #fff;
+}
+
+.status-pill.cancelled {
+  background: #dc2626;
+  color: #fff;
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.edit-btn {
+  background: #4096ff;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.edit-btn:hover {
+  background: #1677ff;
+}
+
+.delete-btn {
+  background: #ff4d4f;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delete-btn:hover {
+  background: #d9363e;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  margin-top: 20px;
+}
+
+/* ===================== MODAL ===================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 9999;
+}
+
+.modal-card {
+  width: min(860px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 12px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+.modal-close:hover {
+  background: #f1f5f9;
+}
+
+/* ✅ Footer (you wanted it on LEFT) */
+.modal-footer {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.btn-ghost {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-ghost:hover {
+  background: #f8fafc;
+}
+
+/* ===================== TABS ===================== */
+
+.prescription-tabs {
+  display: inline-flex;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 16px;
+  gap: 4px;
+}
+
+.prescription-tabs button {
+  padding: 10px 22px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.prescription-tabs button:hover {
+  background: #e2e8f0;
+}
+
+.prescription-tabs button.active {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.3);
+}
+
+/* ===================== FORM ===================== */
+
+.prescription-form label {
+  margin-top: 14px;
+  margin-bottom: 6px;
+  display: block;
+  font-weight: 700;
+  color: #334155;
+  font-size: 14px;
+}
+
+/* default inputs */
+.prescription-form select,
+.prescription-form input[type="date"],
+.prescription-form input[type="number"],
+.prescription-form input[type="text"] {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #cbd5e1;
+  font-size: 14px;
+  background: #fff;
+  color: #0f172a;
+  transition: 0.2s ease;
+  box-sizing: border-box;
+}
+
+.prescription-form select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg fill='none' stroke='%2364748b' stroke-width='2' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 18px;
+}
+
+.prescription-form select:focus,
+.prescription-form input:focus,
+.prescription-form textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.prescription-form select:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.prescription-form textarea {
+  width: 100%;
+  min-height: 130px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1.5px solid #cbd5e1;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  background: #fff;
+  color: #0f172a;
+  transition: 0.2s ease;
+  box-sizing: border-box;
+}
+
+.prescription-form textarea::placeholder {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.prescription-form p {
+  margin-top: 10px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* ✅ Wide controls (instructions + dates) */
+.prescription-form textarea[name="instructions"] {
+  width: 900px;
+  max-width: 100%;
+}
+
+.prescription-form input[type="date"] {
+  width: 900px; /* change this number */
+  max-width: 100%;
+}
+
+/* ✅ Hold + Sets row (controls HOLD width) */
+.exercise-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+/* Hold input fixed width (EDIT HERE) */
+.exercise-row .hold-input {
+  flex: 0 0 240px; /* <-- change width here */
+  width: 240px;
+  max-width: 240px;
+}
+
+/* Sets input fills remaining space */
+.exercise-row .sets-input {
+  flex: 1;
+  min-width: 180px;
+}
+
+/* ===================== BUTTONS ===================== */
+
+.btn-primary {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: 0.2s ease;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+}
+
+.btn-secondary {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  animation: pulse 1.4s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(220, 38, 38, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
+}
+
+.btn:disabled {
+  background: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.error-text {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.success-text {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+/* ===================== RESPONSIVE ===================== */
+@media (max-width: 900px) {
+  .doctors-header,
+  .page-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fb-search,
+  .search-pill {
+    width: 100%;
+  }
+
+  .header-actions,
+  .page-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* stack hold + sets */
+  .exercise-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .exercise-row .hold-input {
+    width: 100%;
+    max-width: 100%;
+    flex: 1;
+  }
+}
