@@ -1,7 +1,7 @@
 // src/components/AdminBillingManager.js
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import './AdminBillingManager.css';
+import './admin/AdminBilling.css';
 
 // Mock ICD-10 Codes
 const ICD10_CODES = [

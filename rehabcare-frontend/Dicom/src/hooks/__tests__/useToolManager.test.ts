@@ -11,6 +11,7 @@ jest.mock('@cornerstonejs/tools', () => ({
   WindowLevelTool: { toolName: 'WindowLevel' },
   ZoomTool: { toolName: 'Zoom' },
   PanTool: { toolName: 'Pan' },
+  TrackballRotateTool: { toolName: 'TrackballRotate' },
   PlanarRotateTool: { toolName: 'PlanarRotate' },
   ArrowAnnotateTool: { toolName: 'ArrowAnnotate' },
   LengthTool: { toolName: 'Length' },

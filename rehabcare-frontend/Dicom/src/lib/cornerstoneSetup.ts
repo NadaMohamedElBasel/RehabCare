@@ -3,8 +3,13 @@ import * as cornerstoneTools from '@cornerstonejs/tools';
 import { init as initImageLoader } from '@cornerstonejs/dicom-image-loader';
 import { initDerivedImageLoader } from './derivedImageLoader';
 
+let initPromise: Promise<void> | null = null;
+
 export async function initCornerstone() {
-  try {
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    try {
     // Type definitions for codec initialization
     type CodecInitConfig = {
       wasmModuleURL: string;
@@ -43,8 +48,12 @@ export async function initCornerstone() {
     cornerstone.setUseCPURendering(false);
 
     console.log('Cornerstone initialized successfully');
-  } catch (error) {
-    console.error('Error initializing Cornerstone:', error);
-    throw error;
-  }
+    } catch (error) {
+      console.error('Error initializing Cornerstone:', error);
+      initPromise = null;
+      throw error;
+    }
+  })();
+
+  return initPromise;
 }

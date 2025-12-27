@@ -302,8 +302,26 @@ const parseRecordData = (data) => {
 
                         {/* DOCTOR NOTES */}
                         <td className="notes-cell">
-                        {data.notes || "-"}
-                        </td>
+  {(() => {
+    const data = parseRecordData(r.record_data); // Use 'r' instead of 'record'
+    if (!data.notes) return '-';
+
+    if (Array.isArray(data.notes)) {
+      return (
+        <div className="notes-list">
+          {data.notes.map((note, idx) => (
+            <div key={idx} className="note-item">
+              {note.text}
+              {note.createdAt && <span className="text-gray-500 ml-2">({note.createdAt})</span>}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    return data.notes; // Fallback for single string notes
+  })()}
+</td>
 
                         {/* ACTIONS */}
                         <td>

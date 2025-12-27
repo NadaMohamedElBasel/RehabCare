@@ -1,4 +1,4 @@
-/* src/components/LandingPage.css */
+/* src/components/LandingPage.css
 .landing-container {
   max-width: 800px;
   margin: 0 auto;
@@ -32,4 +32,152 @@
 
 .option-button:hover {
   background-color: #2980b9;
+} */
+
+/* src/components/LandingPage.css */
+.landing-container {
+  min-height: 100vh;
+  background: linear-gradient(to bottom, #f0f7ff 0%, #ffffff 100%);
+  padding: 2rem 1rem;
+  font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+.hero-section {
+  text-align: center;
+  padding: 4rem 1rem 2rem;
+}
+
+.hero-section h1 {
+  font-size: 2.8rem;
+  color: #1a5c9c;
+  margin-bottom: 0.5rem;
+}
+
+.tagline {
+  font-size: 1.25rem;
+  color: #4a6fa5;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.about-section,
+.doctors-section,
+.cta-section {
+  max-width: 1100px;
+  margin: 3rem auto;
+  padding: 2rem;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+}
+
+.about-section h2,
+.doctors-section h2,
+.cta-section h2 {
+  color: #1a5c9c;
+  margin-bottom: 1.2rem;
+  text-align: center;
+}
+
+.doctors-hint {
+  text-align: center;
+  color: #555;
+  margin-bottom: 2rem;
+  font-style: italic;
+}
+
+.doctors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+
+.doctor-card {
+  background: #f8fbff;
+  border: 1px solid #e0efff;
+  border-radius: 10px;
+  padding: 1.4rem;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.doctor-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+  border-color: #b3d4ff;
+}
+
+.doctor-name {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #1a5c9c;
+  margin-bottom: 0.4rem;
+}
+
+.doctor-spec {
+  color: #4a6fa5;
+  font-weight: 500;
+  margin-bottom: 0.6rem;
+}
+
+.doctor-id {
+  font-size: 0.9rem;
+  color: #777;
+}
+
+.cta-section {
+  text-align: center;
+}
+
+.landing-options {
+  margin-top: 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.option-button {
+  display: inline-block;
+  padding: 14px 28px;
+  font-size: 1.1rem;
+  font-weight: 500;
+  text-decoration: none;
+  border-radius: 8px;
+  transition: all 0.25s ease;
+  min-width: 180px;
+}
+
+.patient-btn {
+  background-color: #3498db;
+  color: white;
+}
+
+.patient-btn:hover {
+  background-color: #2980b9;
+  transform: translateY(-2px);
+}
+
+.doctor-btn {
+  background-color: #27ae60;
+  color: white;
+}
+
+.doctor-btn:hover {
+  background-color: #219653;
+}
+
+.admin-btn {
+  background-color: #e67e22;
+  color: white;
+}
+
+.admin-btn:hover {
+  background-color: #d35400;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .hero-section h1 { font-size: 2.2rem; }
+  .landing-options { flex-direction: column; align-items: center; }
 }

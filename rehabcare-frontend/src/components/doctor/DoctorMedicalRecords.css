@@ -287,3 +287,20 @@
     white-space: nowrap;
   }
 }
+.notes-cell {
+  max-width: 300px;
+  overflow: auto;
+}
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.note-item {
+  font-size: 0.875rem;
+  padding: 4px;
+  border-bottom: 1px solid #eee;
+}
+.note-item:last-child {
+  border-bottom: none;
+}

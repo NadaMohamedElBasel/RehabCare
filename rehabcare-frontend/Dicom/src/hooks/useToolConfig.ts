@@ -13,6 +13,7 @@ import {
   ZoomTool,
   PanTool,
   PlanarRotateTool,
+  TrackballRotateTool,
   LengthTool,
   AngleTool,
   RectangleROITool,
@@ -25,7 +26,6 @@ import {
   HandRaisedIcon,
   AdjustmentsHorizontalIcon,
   Square2StackIcon,
-  Square3Stack3DIcon,
   CircleStackIcon,
   ArrowPathIcon,
   PencilIcon,
@@ -36,7 +36,7 @@ export interface ToolConfig {
   label: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   group: 'tools' | 'measurements' | 'annotations';
-  modes?: Array<'stack' | 'mpr'>;
+  modes?: Array<'stack' | 'mpr' | 'vr'>;
 }
 
 const CrosshairIcon = (props: React.SVGProps<SVGSVGElement>) =>
@@ -64,56 +64,71 @@ export const useToolConfig = () => {
       label: 'Window Level',
       icon: AdjustmentsHorizontalIcon,
       group: 'tools',
+      modes: ['stack', 'mpr'],
     },
     {
       name: ZoomTool.toolName,
       label: 'Zoom',
       icon: ArrowsPointingOutIcon,
       group: 'tools',
+      modes: ['stack', 'mpr', 'vr'],
     },
     {
       name: PanTool.toolName,
       label: 'Pan',
       icon: HandRaisedIcon,
       group: 'tools',
+      modes: ['stack', 'mpr', 'vr'],
     },
     {
       name: PlanarRotateTool.toolName,
       label: 'Rotate',
       icon: ArrowPathIcon,
       group: 'tools',
+      modes: ['stack', 'mpr'],
+    },
+    {
+      name: TrackballRotateTool.toolName,
+      label: '3D Rotate',
+      icon: ArrowPathIcon,
+      group: 'tools',
+      modes: ['vr'],
     },
     {
       name: LengthTool.toolName,
       label: 'Length',
       icon: ArrowPathIcon,
       group: 'measurements',
+      modes: ['stack', 'mpr'],
     },
     {
       name: AngleTool.toolName,
       label: 'Angle',
       icon: Square2StackIcon,
       group: 'measurements',
+      modes: ['stack', 'mpr'],
     },
     {
       name: RectangleROITool.toolName,
       label: 'Rectangle',
-      icon: Square3Stack3DIcon,
+      icon: Square2StackIcon,
       group: 'measurements',
+      modes: ['stack', 'mpr'],
     },
     {
       name: CircleROITool.toolName,
       label: 'Circle',
       icon: CircleStackIcon,
       group: 'measurements',
+      modes: ['stack', 'mpr'],
     },
     {
       name: ArrowAnnotateTool.toolName,
       label: 'ROI Marker',
       icon: PencilIcon,
       group: 'annotations',
-      // Requested: ROI marker is for stack-only workflow
-      modes: ['stack'],
+      // Notes/annotations are useful in both Stack and MPR
+      modes: ['stack', 'mpr'],
     },
   ];
 

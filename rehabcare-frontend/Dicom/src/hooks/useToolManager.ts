@@ -6,6 +6,7 @@ import {
   PanTool,
   WindowLevelTool,
   PlanarRotateTool,
+  TrackballRotateTool,
   ArrowAnnotateTool,
   LengthTool,
   AngleTool,
@@ -29,6 +30,30 @@ export const useToolManager = (toolGroupId: string = TOOLGROUP_ID) => {
     const toolGroup = ToolGroupManager.getToolGroup(toolGroupId);
     if (!toolGroup) return;
 
+    const safeSetPassive = (name: string) => {
+      try {
+        (toolGroup as any).setToolPassive?.(name);
+      } catch {
+        // Tool may not exist in this tool group; ignore.
+      }
+    };
+
+    const safeSetEnabled = (name: string) => {
+      try {
+        (toolGroup as any).setToolEnabled?.(name);
+      } catch {
+        // Tool may not exist in this tool group; ignore.
+      }
+    };
+
+    const safeSetActive = (name: string) => {
+      try {
+        (toolGroup as any).setToolActive?.(name, { bindings: [{ mouseButton: 1 }] });
+      } catch {
+        // Tool may not exist in this tool group; ignore.
+      }
+    };
+
     // CrosshairsTool requires MPR (multiple orthographic viewports).
     // Enabling/activating it in the stack viewport can crash at runtime.
     if (toolGroupId === TOOLGROUP_ID && toolName === CrosshairsTool.toolName) {
@@ -38,30 +63,31 @@ export const useToolManager = (toolGroupId: string = TOOLGROUP_ID) => {
     // Keep Crosshairs enabled so reference lines stay visible in MPR.
     // (If Crosshairs isn't part of this tool group, these calls are effectively no-ops.)
     if (toolGroupId !== TOOLGROUP_ID) {
-      toolGroup.setToolEnabled(CrosshairsTool.toolName);
+      safeSetEnabled(CrosshairsTool.toolName);
     }
 
     // Deactivate all other tools first
-    toolGroup.setToolPassive(WindowLevelTool.toolName);
-    toolGroup.setToolPassive(ZoomTool.toolName);
-    toolGroup.setToolPassive(PanTool.toolName);
-    toolGroup.setToolPassive(PlanarRotateTool.toolName);
-    toolGroup.setToolPassive(ArrowAnnotateTool.toolName);
-    toolGroup.setToolPassive(LengthTool.toolName);
-    toolGroup.setToolPassive(AngleTool.toolName);
-    toolGroup.setToolPassive(RectangleROITool.toolName);
-    toolGroup.setToolPassive(CircleROITool.toolName);
+    safeSetPassive(WindowLevelTool.toolName);
+    safeSetPassive(ZoomTool.toolName);
+    safeSetPassive(PanTool.toolName);
+    safeSetPassive(PlanarRotateTool.toolName);
+    safeSetPassive(TrackballRotateTool.toolName);
+    safeSetPassive(ArrowAnnotateTool.toolName);
+    safeSetPassive(LengthTool.toolName);
+    safeSetPassive(AngleTool.toolName);
+    safeSetPassive(RectangleROITool.toolName);
+    safeSetPassive(CircleROITool.toolName);
 
     // Crosshairs should be passive by default (renders, but doesn't steal left-click)
     if (toolGroupId !== TOOLGROUP_ID) {
-      toolGroup.setToolPassive(CrosshairsTool.toolName);
+      safeSetPassive(CrosshairsTool.toolName);
     }
 
     // Activate the selected tool
     if (activeTool === toolName) {
       setActiveTool(null);
     } else {
-      toolGroup.setToolActive(toolName, { bindings: [{ mouseButton: 1 }] });
+      safeSetActive(toolName);
       setActiveTool(toolName);
     }
   };

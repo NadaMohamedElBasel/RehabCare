@@ -120,13 +120,21 @@ function MedicalRecords() {
                     <div><strong>Height:</strong> {data.height ? `${data.height} cm` : "-"}</div>
                     <div><strong>Blood Pressure:</strong> {data.bloodPressure || "-"}</div>
 
-                    {/* Doctor Notes */}
                     {data.notes && (
-                      <div className="doctor-notes">
-                        <strong>Doctor Notes:</strong>
-                        <p>{data.notes}</p>
-                      </div>
-                    )}
+  <div className="doctor-notes">
+    <strong>Doctor Notes:</strong>
+    {Array.isArray(data.notes) ? (
+      data.notes.map((note, index) => (
+        <p key={index}>
+          {note.text} {/* Adjust based on your note structure */}
+          {note.createdAt && <small> ({note.createdAt})</small>}
+        </p>
+      ))
+    ) : (
+      <p>{data.notes}</p>  // Fallback for string
+    )}
+  </div>
+)}
                   </div>
                 );
               })()}

@@ -6,8 +6,10 @@ import {
   StackViewport,
   imageLoader,
   volumeLoader,
+  setVolumesForViewports,
   cache,
 } from '@cornerstonejs/core';
+import { createDerivedImageIds, type EnhancementConfig } from '@lib/derivedImageLoader';
 import {
   addTool,
   ToolGroupManager,
@@ -17,6 +19,7 @@ import {
   PanTool,
   WindowLevelTool,
   PlanarRotateTool,
+  TrackballRotateTool,
   LengthTool,
   AngleTool,
   ScaleOverlayTool,
@@ -24,8 +27,12 @@ import {
   CircleROITool,
   CrosshairsTool,
   ArrowAnnotateTool,
+  annotation,
+  Enums as csToolsEnums,
 } from '@cornerstonejs/tools';
 import html2canvas from 'html2canvas';
+
+const { MouseBindings } = csToolsEnums;
 
 interface ViewerProps {
   // One or more DICOM imageIds (wadouri:...) - if multiple, they form a volume/series.
@@ -33,16 +40,30 @@ interface ViewerProps {
 
   // stack: single viewport stack rendering
   // mpr: 3 orthographic viewports (axial/sagittal/coronal)
-  mode: 'stack' | 'mpr';
+  // vr: volume rendering (3D)
+  mode: 'stack' | 'mpr' | 'vr';
 
   // In MPR, which viewport(s) should receive mouse interactions.
   // - 'axial'|'sagittal'|'coronal' => only that plane is interactive
   // - 'all' => all planes interactive + optional sync
   mprInteractionTarget?: 'axial' | 'sagittal' | 'coronal' | 'all';
+
+  // Stack-mode enhancements only (no-op in MPR)
+  enhancements?: {
+    /** 0..3 */
+    sharpen?: number;
+    /** 0..3 */
+    smooth?: number;
+    /** 0..3 */
+    denoise?: number;
+  };
 }
 
 export interface ViewerRef {
   downloadImage: (format?: string) => void;
+  captureImageDataUrl: (format?: string) => Promise<string>;
+  getAllAnnotations: () => any[];
+  removeAllAnnotations: () => void;
   setWindowLevel: (opts: {
     center: number;
     width: number;
@@ -60,6 +81,10 @@ const MPR_CORONAL_VIEWPORT_ID = 'mprCoronalViewport';
 
 const MPR_TOOLGROUP_ID = 'mprToolGroup';
 
+const VR_VIEWPORT_ID = 'vrViewport';
+const VR_TOOLGROUP_ID = 'vrToolGroup';
+const VR_VOLUME_ID = 'cornerstoneStreamingImageVolume:vrVolume';
+
 const MPR_ZOOMPAN_SYNC_ID = 'mprZoomPanSync';
 const MPR_VOI_SYNC_ID = 'mprVoiSync';
 
@@ -74,6 +99,7 @@ function registerToolsOnce() {
   addTool(PanTool);
   addTool(WindowLevelTool);
   addTool(PlanarRotateTool);
+  addTool(TrackballRotateTool);
   addTool(LengthTool);
   addTool(AngleTool);
   addTool(ScaleOverlayTool);
@@ -121,7 +147,36 @@ function ensureToolGroup(toolGroupId: string, opts?: { includeCrosshairs?: boole
   return toolGroup;
 }
 
-const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteractionTarget = 'axial' }, ref) => {
+function ensureVrToolGroup() {
+  let toolGroup = ToolGroupManager.getToolGroup(VR_TOOLGROUP_ID);
+  if (toolGroup) return toolGroup;
+
+  toolGroup = ToolGroupManager.createToolGroup(VR_TOOLGROUP_ID);
+  if (!toolGroup) {
+    throw new Error(`Failed to create tool group: ${VR_TOOLGROUP_ID}`);
+  }
+
+  toolGroup.addTool(TrackballRotateTool.toolName);
+  toolGroup.addTool(ZoomTool.toolName);
+  toolGroup.addTool(PanTool.toolName);
+
+  // Default interaction (match MontuCore):
+  // Left = rotate, Right = zoom, Middle = pan
+  toolGroup.setToolActive(TrackballRotateTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Primary }],
+  });
+  toolGroup.setToolActive(ZoomTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Secondary }],
+  });
+  toolGroup.setToolActive(PanTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Auxiliary }],
+  });
+
+  return toolGroup;
+}
+
+const Viewer = forwardRef<ViewerRef, ViewerProps>(
+  ({ imageIds, mode, mprInteractionTarget = 'axial', enhancements }, ref) => {
   // Root container used for screenshots (captures stack OR all MPR planes)
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -130,6 +185,7 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
   const axialElementRef = useRef<HTMLDivElement>(null);
   const sagittalElementRef = useRef<HTMLDivElement>(null);
   const coronalElementRef = useRef<HTMLDivElement>(null);
+  const vrElementRef = useRef<HTMLDivElement>(null);
 
   // Slice sliders (MPR): each orthographic viewport can scroll independently
   const [axialMax, setAxialMax] = useState(0);
@@ -141,6 +197,9 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
 
   const zoomPanSyncRef = useRef<ReturnType<typeof synchronizers.createZoomPanSynchronizer> | null>(null);
   const voiSyncRef = useRef<ReturnType<typeof synchronizers.createVOISynchronizer> | null>(null);
+
+  // Used to trigger effects that must run after viewport initialization.
+  const [stackInitTick, setStackInitTick] = useState(0);
 
   // Expose download function via ref
   useImperativeHandle(ref, () => ({
@@ -167,6 +226,35 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
       } catch (error) {
         console.error('Error generating or downloading image with annotations:', error);
         alert('Failed to download image with annotations.');
+      }
+    },
+
+    captureImageDataUrl: async (format = 'image/jpeg') => {
+      const element = containerRef.current;
+      if (!element) {
+        throw new Error('Viewer element not found.');
+      }
+      const canvas = await html2canvas(element, {
+        useCORS: true,
+        allowTaint: true,
+      });
+      return canvas.toDataURL(format, 0.9);
+    },
+
+    getAllAnnotations: () => {
+      try {
+        const anns = (annotation as any)?.state?.getAllAnnotations?.();
+        return Array.isArray(anns) ? anns : [];
+      } catch {
+        return [];
+      }
+    },
+
+    removeAllAnnotations: () => {
+      try {
+        (annotation as any)?.state?.removeAllAnnotations?.();
+      } catch {
+        // no-op
       }
     },
 
@@ -212,9 +300,11 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
     const axialEl = axialElementRef.current;
     const sagittalEl = sagittalElementRef.current;
     const coronalEl = coronalElementRef.current;
+    const vrEl = vrElementRef.current;
 
     if (mode === 'stack' && !stackEl) return;
     if (mode === 'mpr' && (!axialEl || !sagittalEl || !coronalEl)) return;
+    if (mode === 'vr' && !vrEl) return;
 
     let renderingEngine: RenderingEngine | null = null;
 
@@ -258,6 +348,8 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
 
           // StackViewport shows one plane, optionally with multiple images in the stack
           const viewport = renderingEngine.getViewport(VIEWPORT_ID) as StackViewport;
+
+          // Keep init fast: enhancement swapping is handled in the effect below.
           viewport.setStack(imageIds);
           viewport.setProperties({
             voiRange: {
@@ -266,6 +358,57 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
             },
           });
           viewport.render();
+
+          // Signal that the stack viewport is ready (so slider effects can apply immediately).
+          setStackInitTick((v) => v + 1);
+          return;
+        }
+
+        if (mode === 'vr') {
+          renderingEngine.setViewports([
+            {
+              viewportId: VR_VIEWPORT_ID,
+              element: vrEl!,
+              type: Enums.ViewportType.VOLUME_3D,
+              defaultOptions: {
+                orientation: Enums.OrientationAxis.ACQUISITION,
+                background: [0, 0, 0],
+              },
+            },
+          ]);
+
+          // Create a dedicated 3D tool group with TrackballRotate/Zoom/Pan bindings
+          const vrGroup = ensureVrToolGroup();
+          vrGroup.addViewport(VR_VIEWPORT_ID, RENDERING_ENGINE_ID);
+
+          // If the user loads a new series, drop the previous cached volume so we rebuild it.
+          try {
+            cache.removeVolumeLoadObject(VR_VOLUME_ID);
+          } catch {
+            // not cached yet
+          }
+
+          // Warm image cache (helps avoid black viewports in some setups)
+          try {
+            await Promise.all(imageIds.map((id) => (imageLoader as any).loadAndCacheImage?.(id) ?? imageLoader.loadImage(id)));
+          } catch {
+            // ignore warming failures; volume loader will still try to load
+          }
+
+          const volume = await volumeLoader.createAndCacheVolume(VR_VOLUME_ID, { imageIds });
+          if (typeof (volume as any).load === 'function') {
+            await (volume as any).load();
+          }
+
+          await setVolumesForViewports(renderingEngine, [{ volumeId: VR_VOLUME_ID }], [VR_VIEWPORT_ID]);
+
+          const vp: any = renderingEngine.getViewport(VR_VIEWPORT_ID);
+          try {
+            vp?.setProperties?.({ preset: 'CT-Bone' });
+          } catch {
+            // ignore preset failures
+          }
+          vp?.render?.();
           return;
         }
 
@@ -342,7 +485,40 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
           console.warn('Failed to set initial MPR VOI:', e);
         }
 
-        // Initialize sliders to the middle slice for each plane
+        const setSliceIndexSafe = (vp: any, sliceIndex: number) => {
+          if (!vp) return;
+          try {
+            if (typeof vp.setSliceIndex === 'function') {
+              vp.setSliceIndex(sliceIndex);
+              return;
+            }
+          } catch {
+            // ignore
+          }
+
+          try {
+            if (typeof vp.setViewReference === 'function' && typeof vp.getViewReference === 'function') {
+              const viewRef = vp.getViewReference({ sliceIndex });
+              if (viewRef) vp.setViewReference(viewRef);
+            }
+          } catch {
+            // ignore
+          }
+        };
+
+        const waitNextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+        // After grid/CSS layout, force a resize before computing slice counts.
+        await waitNextFrame();
+        await waitNextFrame();
+
+        try {
+          renderingEngine.resize?.(true, true);
+        } catch {
+          // ignore
+        }
+
+        // Initialize sliders to the middle slice for each plane (after resize so slice counts are accurate)
         const aMax = axialVp.getNumberOfSlices?.() ?? 0;
         const sMax = sagittalVp.getNumberOfSlices?.() ?? 0;
         const cMax = coronalVp.getNumberOfSlices?.() ?? 0;
@@ -359,13 +535,19 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
         setSagittalSlice(sMid);
         setCoronalSlice(cMid);
 
-        // IMPORTANT: setViewReference needs a fully compatible viewRef.
-        // We generate it from the viewport itself so it includes FrameOfReferenceUID + viewPlaneNormal.
-        axialVp.setViewReference?.(axialVp.getViewReference?.({ sliceIndex: aMid }));
-        sagittalVp.setViewReference?.(sagittalVp.getViewReference?.({ sliceIndex: sMid }));
-        coronalVp.setViewReference?.(coronalVp.getViewReference?.({ sliceIndex: cMid }));
+        setSliceIndexSafe(axialVp, aMid);
+        setSliceIndexSafe(sagittalVp, sMid);
+        setSliceIndexSafe(coronalVp, cMid);
 
         // Fit images to the viewport without distortion (keeps correct aspect ratio)
+        try {
+          axialVp.resetCamera?.({ resetPan: true, resetZoom: true, resetToCenter: true });
+          sagittalVp.resetCamera?.({ resetPan: true, resetZoom: true, resetToCenter: true });
+          coronalVp.resetCamera?.({ resetPan: true, resetZoom: true, resetToCenter: true });
+        } catch {
+          // ignore
+        }
+
         axialVp.resetCameraForResize?.();
         sagittalVp.resetCameraForResize?.();
         coronalVp.resetCameraForResize?.();
@@ -419,16 +601,41 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
     return () => {
       try {
         if (renderingEngine) {
-          // Disable whichever viewports were enabled
-          renderingEngine.disableElement(VIEWPORT_ID);
-          renderingEngine.disableElement(MPR_AXIAL_VIEWPORT_ID);
-          renderingEngine.disableElement(MPR_SAGITTAL_VIEWPORT_ID);
-          renderingEngine.disableElement(MPR_CORONAL_VIEWPORT_ID);
+          // Disable only viewports that exist. When switching modes, the other set of
+          // viewports might never have been created, so disabling them would warn.
+          const safeDisableViewport = (viewportId: string) => {
+            try {
+              const vp = (renderingEngine as any).getViewport?.(viewportId);
+              if (!vp) return;
+              (renderingEngine as any).disableElement?.(viewportId);
+            } catch {
+              // ignore
+            }
+          };
+
+          safeDisableViewport(VIEWPORT_ID);
+          safeDisableViewport(MPR_AXIAL_VIEWPORT_ID);
+          safeDisableViewport(MPR_SAGITTAL_VIEWPORT_ID);
+          safeDisableViewport(MPR_CORONAL_VIEWPORT_ID);
+          safeDisableViewport(VR_VIEWPORT_ID);
         }
 
         // Tool groups are created on-demand; destroy to avoid leaking bindings
-        ToolGroupManager.destroyToolGroup(TOOLGROUP_ID);
-        ToolGroupManager.destroyToolGroup(MPR_TOOLGROUP_ID);
+        try {
+          ToolGroupManager.destroyToolGroup(TOOLGROUP_ID);
+        } catch {
+          // ignore
+        }
+        try {
+          ToolGroupManager.destroyToolGroup(MPR_TOOLGROUP_ID);
+        } catch {
+          // ignore
+        }
+        try {
+          ToolGroupManager.destroyToolGroup(VR_TOOLGROUP_ID);
+        } catch {
+          // ignore
+        }
 
         // Destroy synchronizers on unmount to avoid cross-session leakage.
         SynchronizerManager.destroySynchronizer(MPR_ZOOMPAN_SYNC_ID);
@@ -440,6 +647,61 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
       }
     };
   }, [imageIds, mode]);
+
+  // Stack-only enhancement pipeline. Debounced to keep UI responsive.
+  useEffect(() => {
+    if (mode !== 'stack') return;
+
+    const engine = getRenderingEngine(RENDERING_ENGINE_ID);
+    if (!engine) return;
+
+    const vp: any = engine.getViewport(VIEWPORT_ID);
+    if (!vp?.setStack) return;
+
+    const clamp03 = (v: number) => Math.max(0, Math.min(3, v));
+    const sharpen = clamp03(Number(enhancements?.sharpen ?? 0));
+    const smooth = clamp03(Number(enhancements?.smooth ?? 0));
+    const denoise = clamp03(Number(enhancements?.denoise ?? 0));
+
+    const total = sharpen + smooth + denoise;
+    // If all are off, reset back to original IDs.
+    const needsEnhancement = total > 0;
+
+    let cancelled = false;
+    const handle = window.setTimeout(async () => {
+      try {
+        const currentIndex = typeof vp.getCurrentImageIdIndex === 'function' ? vp.getCurrentImageIdIndex() : 0;
+
+        let nextIds = imageIds;
+        if (needsEnhancement) {
+          const steps: EnhancementConfig[] = [];
+          if (smooth > 0) steps.push({ mode: 'smooth', strength: smooth });
+          if (denoise > 0) steps.push({ mode: 'denoise', strength: denoise });
+          if (sharpen > 0) steps.push({ mode: 'sharpen', strength: sharpen });
+
+          for (const step of steps) {
+            nextIds = await createDerivedImageIds(nextIds, step);
+          }
+        }
+
+        if (cancelled) return;
+        // Some Cornerstone versions return a Promise here; await either way.
+        await Promise.resolve(vp.setStack(nextIds));
+        if (typeof vp.setImageIdIndex === 'function') {
+          const safeIndex = Math.max(0, Math.min(nextIds.length - 1, currentIndex ?? 0));
+          vp.setImageIdIndex(safeIndex);
+        }
+        vp.render?.();
+      } catch (e) {
+        console.warn('Failed to apply stack enhancements:', e);
+      }
+    }, 150);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [mode, imageIds, stackInitTick, enhancements?.sharpen, enhancements?.smooth, enhancements?.denoise]);
 
   // Toggle synchronizer enablement without rebuilding the viewports.
   useEffect(() => {
@@ -453,11 +715,19 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
     const engine = getRenderingEngine(RENDERING_ENGINE_ID);
     if (!engine) return;
     const vp: any = engine.getViewport(viewportId);
-    if (!vp?.setViewReference || !vp?.getViewReference) return;
     try {
-      // Generate a correct viewRef from this viewport for the requested slice.
-      const viewRef = vp.getViewReference({ sliceIndex });
-      vp.setViewReference(viewRef);
+      if (typeof vp?.setSliceIndex === 'function') {
+        vp.setSliceIndex(sliceIndex);
+        vp.render?.();
+        return;
+      }
+
+      if (typeof vp?.setViewReference === 'function' && typeof vp?.getViewReference === 'function') {
+        // Generate a correct viewRef from this viewport for the requested slice.
+        const viewRef = vp.getViewReference({ sliceIndex });
+        if (viewRef) vp.setViewReference(viewRef);
+      }
+
       // BaseVolumeViewport.setViewReference may only update camera; ensure a render.
       vp.render?.();
     } catch (e) {
@@ -471,9 +741,13 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
       {mode === 'stack' ? (
         // Stack mode: single viewport fills the container
         <div ref={stackElementRef} className="w-full h-full" />
+      ) : mode === 'vr' ? (
+        // Volume rendering (3D): single viewport fills the container
+        <div ref={vrElementRef} className="w-full h-full" onContextMenu={(e) => e.preventDefault()} />
       ) : (
-        // MPR mode: 4-panel layout (3 planes + 3D placeholder)
-        <div className="grid grid-cols-1 md:grid-cols-2 md:grid-rows-2 w-full h-full min-h-0 min-w-0 gap-px bg-gray-900">
+        // MPR mode: 2x2 grid like 3D Slicer (Axial, Sagittal, Coronal, empty)
+        <div className="grid grid-cols-2 grid-rows-2 w-full h-full min-h-0 min-w-0 gap-px bg-gray-900">
+          {/* Axial (top-left) */}
           <div className="relative w-full h-full min-h-0 min-w-0 overflow-hidden bg-black">
             <div className="absolute top-2 left-2 z-10 px-2 py-1 text-xs font-medium text-white bg-black/60 rounded">Axial</div>
             <div
@@ -499,6 +773,7 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
             )}
           </div>
 
+          {/* Sagittal (top-right) */}
           <div className="relative w-full h-full min-h-0 min-w-0 overflow-hidden bg-black">
             <div className="absolute top-2 left-2 z-10 px-2 py-1 text-xs font-medium text-white bg-black/60 rounded">Sagittal</div>
             <div
@@ -524,6 +799,7 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
             )}
           </div>
 
+          {/* Coronal (bottom-left) */}
           <div className="relative w-full h-full min-h-0 min-w-0 overflow-hidden bg-black">
             <div className="absolute top-2 left-2 z-10 px-2 py-1 text-xs font-medium text-white bg-black/60 rounded">Coronal</div>
             <div
@@ -549,16 +825,13 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(({ imageIds, mode, mprInteract
             )}
           </div>
 
-          <div className="relative w-full h-full min-h-0 min-w-0 overflow-hidden bg-black">
-            <div className="absolute top-2 left-2 z-10 px-2 py-1 text-xs font-medium text-white bg-black/60 rounded">3D (coming soon)</div>
-            <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
-              3D view is not implemented yet
-            </div>
-          </div>
+          {/* Empty (bottom-right) */}
+          <div className="w-full h-full min-h-0 min-w-0 overflow-hidden bg-black" />
         </div>
       )}
     </div>
   );
-});
+  }
+);
 
 export default Viewer;
