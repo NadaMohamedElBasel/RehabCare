@@ -211,7 +211,7 @@ const App = () => {
     const screenshotDataUrl = await viewerRef.current?.captureImageDataUrl?.('image/jpeg');
 
     const recordPayload = {
-      kind: 'dicom-annotation',
+      kind: 'Dicom Record',
       createdAt: new Date().toISOString(),
       imageCount: imageIds.length,
       viewMode,
@@ -224,25 +224,28 @@ const App = () => {
     };
 
     try {
-      const res = await fetch(`http://localhost:5000/api/doctor/${doctorIdNum}/patients/${patientIdNum}/medical-records`, {
+      const res = await fetch(
+        `http://localhost:5000/api/doctor/${doctorIdNum}/patients/${patientIdNum}/medical-records/dicom`,
+        {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          recordType: 'DICOM_VIEWER',
-          recordData: JSON.stringify(recordPayload),
           department: integrationDepartment || 'Radiology',
+          screenshotDataUrl: screenshotDataUrl ?? null,
+          recordPayload,
         }),
-      });
+        }
+      );
 
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || `HTTP ${res.status}`);
       }
 
-      alert('Saved annotated image + notes to patient medical records.');
+      alert('Sent Dicom Record to patient medical records.');
     } catch (e) {
       console.error('Failed to save DICOM viewer session to medical records:', e);
-      alert('Failed to save into medical records. Make sure the backend is running and that this doctor has an appointment with this patient.');
+      alert('Failed to send Dicom Record. Make sure the backend is running and that this doctor has an appointment with this patient.');
     }
   };
 

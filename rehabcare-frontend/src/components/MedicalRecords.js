@@ -49,6 +49,8 @@ function MedicalRecords() {
   const [records, setRecords] = useState([]);
   const [error, setError] = useState('');
 
+  const BACKEND_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://127.0.0.1:5000';
+
   useEffect(() => {
     fetchRecords();
   }, [patientId]);
@@ -88,6 +90,27 @@ function MedicalRecords() {
   }
 };
 
+  const isDicomRecord = (record, data) => {
+    const rt = (record?.record_type || '').toLowerCase();
+    const kind = (data?.kind || '').toLowerCase();
+    return rt === 'dicom record' || rt === 'dicom_viewer' || kind === 'dicom record' || kind === 'dicom-annotation';
+  };
+
+  const getDicomImageSrc = (data) => {
+    if (!data) return null;
+    // New backend format stores a URL under /uploads/...
+    const raw = data.imageUrl || data.image_url;
+    if (typeof raw === 'string' && raw.length) {
+      if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:image')) return raw;
+      if (raw.startsWith('/')) return `${BACKEND_BASE_URL}${raw}`;
+      return raw;
+    }
+
+    // Backward compat: older records may store a data URL
+    if (typeof data.screenshotDataUrl === 'string' && data.screenshotDataUrl.startsWith('data:image')) return data.screenshotDataUrl;
+    return null;
+  };
+
   return (
     <div className="medical-records-container">
       <h2>Medical Records</h2>
@@ -112,6 +135,48 @@ function MedicalRecords() {
               <div className="record-body">
               {(() => {
                 const data = parseRecordData(record.record_data);
+
+                if (isDicomRecord(record, data)) {
+                  const imgSrc = getDicomImageSrc(data);
+                  const notes = Array.isArray(data?.notes) ? data.notes : (data?.notes ? [data.notes] : []);
+
+                  return (
+                    <div className="record-grid">
+                      {imgSrc && (
+                        <div className="doctor-notes">
+                          <strong>Dicom Image:</strong>
+                          <div style={{ marginTop: 8 }}>
+                            <a href={imgSrc} target="_blank" rel="noreferrer">Open image</a>
+                          </div>
+                          <img
+                            src={imgSrc}
+                            alt="Dicom Record"
+                            style={{ marginTop: 10, maxWidth: '100%', borderRadius: 8 }}
+                          />
+                        </div>
+                      )}
+
+                      <div className="doctor-notes">
+                        <strong>Doctor Notes:</strong>
+                        {notes.length === 0 ? (
+                          <p>-</p>
+                        ) : (
+                          notes.map((note, index) => {
+                            if (note && typeof note === 'object') {
+                              return (
+                                <p key={note.id || index}>
+                                  {note.text || JSON.stringify(note)}
+                                  {note.createdAt && <small> ({note.createdAt})</small>}
+                                </p>
+                              );
+                            }
+                            return <p key={index}>{String(note)}</p>;
+                          })
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
 
                 return (
                   <div className="record-grid">

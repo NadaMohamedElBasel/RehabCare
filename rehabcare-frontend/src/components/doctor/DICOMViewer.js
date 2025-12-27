@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import "./DICOMViewer.css";
 
-function DICOMViewer() {
+function DICOMViewer({ doctorId }) {
   // Standalone DICOM viewer (rehabcare-frontend/Dicom)
   // Override in CRA via env var:
   //   REACT_APP_DICOM_VIEWER_URL=http://localhost:3001
@@ -12,7 +12,10 @@ function DICOMViewer() {
     process.env.NODE_ENV === "production" ? "/dicom-viewer" : "http://localhost:3001";
 
   const viewerUrl = (process.env.REACT_APP_DICOM_VIEWER_URL || defaultViewerUrl).replace(/\/$/, "");
-  const iframeSrc = `${viewerUrl}/`;
+
+  const params = new URLSearchParams();
+  if (doctorId) params.set('doctorId', String(doctorId));
+  const iframeSrc = `${viewerUrl}/?${params.toString()}`.replace(/\?$/, '');
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewerReachable, setViewerReachable] = useState(true);

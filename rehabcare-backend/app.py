@@ -20,6 +20,9 @@ import datetime
 from datetime import datetime, timedelta, date
 
 import os
+import json
+import base64
+import re
 from collections import deque
 import io
 from pathlib import Path
@@ -71,11 +74,27 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 CORS(app)
 
+# ---------------- Uploads (always enabled) ----------------
+# Some parts of this app (e.g., Dicom Record snapshots) require serving files from /uploads
+# even when TensorFlow/Keras is unavailable.
+UPLOADS_ROOT = Path(__file__).parent / "uploads"
+UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
+app.config["UPLOAD_FOLDER"] = str(UPLOADS_ROOT)
+
+
+def _serve_uploaded_file(filename):
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+
+
+# Register once (avoid duplicate route if other blocks also try to add it)
+if "uploaded_file" not in app.view_functions:
+    app.add_url_rule("/uploads/<path:filename>", endpoint="uploaded_file", view_func=_serve_uploaded_file)
+
 # Database connection
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "Admin@123", # change to yours
+    "password": "1234", # change to yours
     "host": "localhost",
     "port": "5432"
 }
@@ -1442,6 +1461,142 @@ def createMedicalRecord_Doctor(doctorId, patientId):
         "visit_date": visit_date
     }), 201
 
+
+def _decode_image_data_url(data_url: str):
+    """Decode a data URL like 'data:image/jpeg;base64,...' -> (bytes, ext).
+
+    Supports image/jpeg and image/png. Returns (None, None) on failure.
+    """
+    if not data_url or not isinstance(data_url, str):
+        return None, None
+
+    m = re.match(r"^data:(image/(png|jpeg|jpg));base64,(.+)$", data_url, flags=re.IGNORECASE | re.DOTALL)
+    if not m:
+        return None, None
+
+    mime = (m.group(1) or "").lower()
+    b64 = m.group(3)
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except Exception:
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            return None, None
+
+    ext = "png" if "png" in mime else "jpg"
+    return raw, ext
+
+
+@app.route('/api/doctor/<int:doctorId>/patients/<int:patientId>/medical-records/dicom', methods=['POST'])
+def createDicomRecord_Doctor(doctorId, patientId):
+    """Create a new medical record of type 'Dicom Record' with an uploaded snapshot + doctor notes."""
+    data = request.get_json() or {}
+    record_payload = data.get('recordPayload') or {}
+
+    # accept screenshot either at top-level or within recordPayload
+    screenshot_data_url = data.get('screenshotDataUrl') or record_payload.get('screenshotDataUrl')
+    department = data.get('department') or record_payload.get('department') or 'Radiology'
+
+    #  Authorization + get appointment date
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("""
+            SELECT appointment_date
+            FROM appointments
+            WHERE doctor_id = %s AND patient_id = %s
+            ORDER BY appointment_date DESC
+            LIMIT 1
+        """, (doctorId, patientId))
+
+        appointment = cursor.fetchone()
+        if not appointment:
+            return jsonify({"error": "No appointment found for this patient"}), 400
+
+        visit_date = appointment["appointment_date"]
+
+        if not screenshot_data_url:
+            return jsonify({"error": "Missing screenshotDataUrl"}), 400
+
+        raw, ext = _decode_image_data_url(screenshot_data_url)
+        if not raw:
+            return jsonify({"error": "Invalid screenshotDataUrl format"}), 400
+
+        # Ensure uploads root exists even if CDSS is disabled
+        upload_root = Path(app.config.get('UPLOAD_FOLDER') or (Path(__file__).parent / 'uploads'))
+        upload_root.mkdir(parents=True, exist_ok=True)
+        app.config['UPLOAD_FOLDER'] = str(upload_root)
+
+        dicom_dir = upload_root / 'dicom_records'
+        dicom_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"dicom_records/{uuid4().hex}.{ext}"
+        save_path = upload_root / filename
+        with open(save_path, 'wb') as f:
+            f.write(raw)
+
+        image_url = f"/uploads/{filename}"
+
+        # Build structured record data for the patient UI
+        record_data_obj = {
+            "kind": "Dicom Record",
+            "createdAt": record_payload.get('createdAt') or datetime.now().isoformat(),
+            "imageUrl": image_url,
+            "notes": record_payload.get('notes') or record_payload.get('doctorNotes') or [],
+            "annotations": record_payload.get('annotations') or [],
+            "viewMode": record_payload.get('viewMode'),
+            "mprActiveView": record_payload.get('mprActiveView'),
+            "windowLevel": record_payload.get('windowLevel'),
+            "enhancements": record_payload.get('enhancements'),
+            "imageCount": record_payload.get('imageCount'),
+        }
+
+        cursor.execute("""
+            INSERT INTO medical_records
+            (
+              patient_id,
+              record_type,
+              record_data,
+              visit_date,
+              department,
+              created_at,
+              created_by
+            )
+            VALUES (%s,%s,%s,%s,%s,NOW(),%s)
+            RETURNING record_id
+        """, (
+            patientId,
+            'Dicom Record',
+            json.dumps(record_data_obj),
+            visit_date,
+            department,
+            doctorId
+        ))
+
+        record = cursor.fetchone()
+        conn.commit()
+
+        return jsonify({
+            "message": "Dicom Record created successfully",
+            "record_id": record["record_id"],
+            "visit_date": visit_date,
+            "image_url": image_url,
+        }), 201
+    except Exception as e:
+        logging.exception('Failed to create Dicom Record')
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 @app.route('/api/doctor/<int:doctorId>/medical-records/<int:recordId>', methods=['PUT'])
 def updateMedicalRecord(doctorId, recordId):
     data = request.get_json() or {}
@@ -2255,7 +2410,7 @@ MODEL_PATH = Path(__file__).parent / "final_binary.keras"   # put final_binary.k
 IMG_SIZE = 224
 BACKBONE_CANDIDATES = ["EfficientNetB0", "MobileNetV3Large", "EfficientNetV2B0"]
 ALLOWED_EXT = {"png", "jpg", "jpeg"}
-UPLOAD_FOLDER = Path(__file__).parent / "uploads"
+UPLOAD_FOLDER = Path(app.config.get("UPLOAD_FOLDER", str(Path(__file__).parent / "uploads")))
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
 
@@ -2594,9 +2749,7 @@ if keras is not None:
             "image_url": image_url
         }), 200
 
-    @app.route("/uploads/<path:filename>")
-    def uploaded_file(filename):
-        return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+    # /uploads is registered globally above (kept available even without TF/Keras).
 
     # Initialize model on startup
     initialize_model()
