@@ -6,6 +6,7 @@ import {
   StackViewport,
   imageLoader,
   volumeLoader,
+  setVolumesForViewports,
   cache,
 } from '@cornerstonejs/core';
 import { createDerivedImageIds, type EnhancementConfig } from '@lib/derivedImageLoader';
@@ -18,6 +19,7 @@ import {
   PanTool,
   WindowLevelTool,
   PlanarRotateTool,
+  TrackballRotateTool,
   LengthTool,
   AngleTool,
   ScaleOverlayTool,
@@ -26,8 +28,11 @@ import {
   CrosshairsTool,
   ArrowAnnotateTool,
   annotation,
+  Enums as csToolsEnums,
 } from '@cornerstonejs/tools';
 import html2canvas from 'html2canvas';
+
+const { MouseBindings } = csToolsEnums;
 
 interface ViewerProps {
   // One or more DICOM imageIds (wadouri:...) - if multiple, they form a volume/series.
@@ -35,7 +40,8 @@ interface ViewerProps {
 
   // stack: single viewport stack rendering
   // mpr: 3 orthographic viewports (axial/sagittal/coronal)
-  mode: 'stack' | 'mpr';
+  // vr: volume rendering (3D)
+  mode: 'stack' | 'mpr' | 'vr';
 
   // In MPR, which viewport(s) should receive mouse interactions.
   // - 'axial'|'sagittal'|'coronal' => only that plane is interactive
@@ -75,6 +81,10 @@ const MPR_CORONAL_VIEWPORT_ID = 'mprCoronalViewport';
 
 const MPR_TOOLGROUP_ID = 'mprToolGroup';
 
+const VR_VIEWPORT_ID = 'vrViewport';
+const VR_TOOLGROUP_ID = 'vrToolGroup';
+const VR_VOLUME_ID = 'cornerstoneStreamingImageVolume:vrVolume';
+
 const MPR_ZOOMPAN_SYNC_ID = 'mprZoomPanSync';
 const MPR_VOI_SYNC_ID = 'mprVoiSync';
 
@@ -89,6 +99,7 @@ function registerToolsOnce() {
   addTool(PanTool);
   addTool(WindowLevelTool);
   addTool(PlanarRotateTool);
+  addTool(TrackballRotateTool);
   addTool(LengthTool);
   addTool(AngleTool);
   addTool(ScaleOverlayTool);
@@ -136,6 +147,34 @@ function ensureToolGroup(toolGroupId: string, opts?: { includeCrosshairs?: boole
   return toolGroup;
 }
 
+function ensureVrToolGroup() {
+  let toolGroup = ToolGroupManager.getToolGroup(VR_TOOLGROUP_ID);
+  if (toolGroup) return toolGroup;
+
+  toolGroup = ToolGroupManager.createToolGroup(VR_TOOLGROUP_ID);
+  if (!toolGroup) {
+    throw new Error(`Failed to create tool group: ${VR_TOOLGROUP_ID}`);
+  }
+
+  toolGroup.addTool(TrackballRotateTool.toolName);
+  toolGroup.addTool(ZoomTool.toolName);
+  toolGroup.addTool(PanTool.toolName);
+
+  // Default interaction (match MontuCore):
+  // Left = rotate, Right = zoom, Middle = pan
+  toolGroup.setToolActive(TrackballRotateTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Primary }],
+  });
+  toolGroup.setToolActive(ZoomTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Secondary }],
+  });
+  toolGroup.setToolActive(PanTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Auxiliary }],
+  });
+
+  return toolGroup;
+}
+
 const Viewer = forwardRef<ViewerRef, ViewerProps>(
   ({ imageIds, mode, mprInteractionTarget = 'axial', enhancements }, ref) => {
   // Root container used for screenshots (captures stack OR all MPR planes)
@@ -146,6 +185,7 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(
   const axialElementRef = useRef<HTMLDivElement>(null);
   const sagittalElementRef = useRef<HTMLDivElement>(null);
   const coronalElementRef = useRef<HTMLDivElement>(null);
+  const vrElementRef = useRef<HTMLDivElement>(null);
 
   // Slice sliders (MPR): each orthographic viewport can scroll independently
   const [axialMax, setAxialMax] = useState(0);
@@ -260,9 +300,11 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(
     const axialEl = axialElementRef.current;
     const sagittalEl = sagittalElementRef.current;
     const coronalEl = coronalElementRef.current;
+    const vrEl = vrElementRef.current;
 
     if (mode === 'stack' && !stackEl) return;
     if (mode === 'mpr' && (!axialEl || !sagittalEl || !coronalEl)) return;
+    if (mode === 'vr' && !vrEl) return;
 
     let renderingEngine: RenderingEngine | null = null;
 
@@ -319,6 +361,54 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(
 
           // Signal that the stack viewport is ready (so slider effects can apply immediately).
           setStackInitTick((v) => v + 1);
+          return;
+        }
+
+        if (mode === 'vr') {
+          renderingEngine.setViewports([
+            {
+              viewportId: VR_VIEWPORT_ID,
+              element: vrEl!,
+              type: Enums.ViewportType.VOLUME_3D,
+              defaultOptions: {
+                orientation: Enums.OrientationAxis.ACQUISITION,
+                background: [0, 0, 0],
+              },
+            },
+          ]);
+
+          // Create a dedicated 3D tool group with TrackballRotate/Zoom/Pan bindings
+          const vrGroup = ensureVrToolGroup();
+          vrGroup.addViewport(VR_VIEWPORT_ID, RENDERING_ENGINE_ID);
+
+          // If the user loads a new series, drop the previous cached volume so we rebuild it.
+          try {
+            cache.removeVolumeLoadObject(VR_VOLUME_ID);
+          } catch {
+            // not cached yet
+          }
+
+          // Warm image cache (helps avoid black viewports in some setups)
+          try {
+            await Promise.all(imageIds.map((id) => (imageLoader as any).loadAndCacheImage?.(id) ?? imageLoader.loadImage(id)));
+          } catch {
+            // ignore warming failures; volume loader will still try to load
+          }
+
+          const volume = await volumeLoader.createAndCacheVolume(VR_VOLUME_ID, { imageIds });
+          if (typeof (volume as any).load === 'function') {
+            await (volume as any).load();
+          }
+
+          await setVolumesForViewports(renderingEngine, [{ volumeId: VR_VOLUME_ID }], [VR_VIEWPORT_ID]);
+
+          const vp: any = renderingEngine.getViewport(VR_VIEWPORT_ID);
+          try {
+            vp?.setProperties?.({ preset: 'CT-Bone' });
+          } catch {
+            // ignore preset failures
+          }
+          vp?.render?.();
           return;
         }
 
@@ -527,6 +617,7 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(
           safeDisableViewport(MPR_AXIAL_VIEWPORT_ID);
           safeDisableViewport(MPR_SAGITTAL_VIEWPORT_ID);
           safeDisableViewport(MPR_CORONAL_VIEWPORT_ID);
+          safeDisableViewport(VR_VIEWPORT_ID);
         }
 
         // Tool groups are created on-demand; destroy to avoid leaking bindings
@@ -537,6 +628,11 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(
         }
         try {
           ToolGroupManager.destroyToolGroup(MPR_TOOLGROUP_ID);
+        } catch {
+          // ignore
+        }
+        try {
+          ToolGroupManager.destroyToolGroup(VR_TOOLGROUP_ID);
         } catch {
           // ignore
         }
@@ -645,6 +741,9 @@ const Viewer = forwardRef<ViewerRef, ViewerProps>(
       {mode === 'stack' ? (
         // Stack mode: single viewport fills the container
         <div ref={stackElementRef} className="w-full h-full" />
+      ) : mode === 'vr' ? (
+        // Volume rendering (3D): single viewport fills the container
+        <div ref={vrElementRef} className="w-full h-full" onContextMenu={(e) => e.preventDefault()} />
       ) : (
         // MPR mode: 2x2 grid like 3D Slicer (Axial, Sagittal, Coronal, empty)
         <div className="grid grid-cols-2 grid-rows-2 w-full h-full min-h-0 min-w-0 gap-px bg-gray-900">

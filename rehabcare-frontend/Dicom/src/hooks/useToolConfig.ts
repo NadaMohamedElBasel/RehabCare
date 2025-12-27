@@ -13,6 +13,7 @@ import {
   ZoomTool,
   PanTool,
   PlanarRotateTool,
+  TrackballRotateTool,
   LengthTool,
   AngleTool,
   RectangleROITool,
@@ -35,7 +36,7 @@ export interface ToolConfig {
   label: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   group: 'tools' | 'measurements' | 'annotations';
-  modes?: Array<'stack' | 'mpr'>;
+  modes?: Array<'stack' | 'mpr' | 'vr'>;
 }
 
 const CrosshairIcon = (props: React.SVGProps<SVGSVGElement>) =>
@@ -70,14 +71,14 @@ export const useToolConfig = () => {
       label: 'Zoom',
       icon: ArrowsPointingOutIcon,
       group: 'tools',
-      modes: ['stack', 'mpr'],
+      modes: ['stack', 'mpr', 'vr'],
     },
     {
       name: PanTool.toolName,
       label: 'Pan',
       icon: HandRaisedIcon,
       group: 'tools',
-      modes: ['stack', 'mpr'],
+      modes: ['stack', 'mpr', 'vr'],
     },
     {
       name: PlanarRotateTool.toolName,
@@ -85,6 +86,13 @@ export const useToolConfig = () => {
       icon: ArrowPathIcon,
       group: 'tools',
       modes: ['stack', 'mpr'],
+    },
+    {
+      name: TrackballRotateTool.toolName,
+      label: '3D Rotate',
+      icon: ArrowPathIcon,
+      group: 'tools',
+      modes: ['vr'],
     },
     {
       name: LengthTool.toolName,

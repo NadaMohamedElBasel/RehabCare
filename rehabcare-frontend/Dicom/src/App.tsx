@@ -25,7 +25,7 @@ const App = () => {
   const [imageIds, setImageIds] = useState<string[] | null>(null);
   const [metadata, setMetadata] = useState<Record<string, string>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [viewMode, setViewMode] = useState<'stack' | 'mpr'>('stack');
+  const [viewMode, setViewMode] = useState<'stack' | 'mpr' | 'vr'>('stack');
   const [mprActiveView, setMprActiveView] = useState<'axial' | 'sagittal' | 'coronal' | 'all'>('axial');
   const [wlCenter, setWlCenter] = useState<number>(0);
   const [wlWidth, setWlWidth] = useState<number>(1);
@@ -135,6 +135,7 @@ const App = () => {
   // Apply leveling whenever the target or values change.
   useEffect(() => {
     if (!imageIds?.length) return;
+    if (viewMode === 'vr') return;
     viewerRef.current?.setWindowLevel({
       center: wlCenter,
       width: wlWidth,
@@ -169,7 +170,7 @@ const App = () => {
 
   const isMprPossible = (imageIds?.length ?? 0) >= 2;
 
-  const activeToolGroupId = viewMode === 'stack' ? 'defaultToolGroup' : 'mprToolGroup';
+  const activeToolGroupId = viewMode === 'stack' ? 'defaultToolGroup' : viewMode === 'mpr' ? 'mprToolGroup' : 'vrToolGroup';
 
   const downloadSessionJson = async () => {
     const annotations = viewerRef.current?.getAllAnnotations?.() ?? [];
@@ -311,7 +312,7 @@ const App = () => {
                   toolGroupId={activeToolGroupId}
                   viewMode={viewMode}
                   onViewModeChange={(mode) => {
-                    if (mode === 'mpr' && !isMprPossible) return;
+                    if ((mode === 'mpr' || mode === 'vr') && !isMprPossible) return;
                     setViewMode(mode);
                     if (mode !== 'mpr') {
                       setMprActiveView('axial');

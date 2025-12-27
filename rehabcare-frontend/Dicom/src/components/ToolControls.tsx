@@ -19,8 +19,8 @@ interface ToolControlsProps {
   toolGroupId?: string;
 
   // Viewer mode + optional MPR targeting
-  viewMode?: 'stack' | 'mpr';
-  onViewModeChange?: (mode: 'stack' | 'mpr') => void;
+  viewMode?: 'stack' | 'mpr' | 'vr';
+  onViewModeChange?: (mode: 'stack' | 'mpr' | 'vr') => void;
   mprEnabled?: boolean;
   mprActiveView?: 'axial' | 'sagittal' | 'coronal' | 'all';
   onMprActiveViewChange?: (view: 'axial' | 'sagittal' | 'coronal' | 'all') => void;
@@ -49,7 +49,7 @@ interface Tool {
   label: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   group?: 'tools' | 'measurements' | 'annotations';
-  modes?: Array<'stack' | 'mpr'>;
+  modes?: Array<'stack' | 'mpr' | 'vr'>;
 }
 
 // Custom SVG glyphs so each measurement tool visually matches its behavior
@@ -132,14 +132,17 @@ const ToolControls = ({
           <div className="grid grid-cols-1 gap-2">
             <select
               value={viewMode}
-              onChange={(e) => onViewModeChange(e.target.value as 'stack' | 'mpr')}
+              onChange={(e) => onViewModeChange(e.target.value as 'stack' | 'mpr' | 'vr')}
               className="w-full px-3 py-2 text-sm rounded-md bg-white border border-gray-300 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
               disabled={!mprEnabled && viewMode !== 'stack'}
-              title={!mprEnabled ? 'MPR requires multiple DICOM slices' : 'Select view mode'}
+              title={!mprEnabled ? 'MPR/Volume rendering require multiple DICOM slices' : 'Select view mode'}
             >
               <option value="stack">Stack (single plane)</option>
               <option value="mpr" disabled={!mprEnabled}>
                 MPR (axial / sagittal / coronal)
+              </option>
+              <option value="vr" disabled={!mprEnabled}>
+                Volume rendering
               </option>
             </select>
 
