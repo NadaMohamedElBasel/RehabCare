@@ -41,6 +41,33 @@ const ICD10_CODES = [
 const formatTime = (hour, minute = 0) => {
     return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
 };
+// ✅ NEW: Helper to format day + date + time (NO logic change)
+const formatAppointmentDateTime = (startISO, endISO) => {
+    if (!startISO || !endISO) {
+        return { dateText: 'N/A', timeText: 'N/A' };
+    }
+
+    const start = new Date(startISO);
+    const end = new Date(endISO);
+
+    const dateText = start.toLocaleDateString('en-GB', {
+        weekday: 'long',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    });
+
+    const timeText = `${start.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+    })} - ${end.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+    })}`;
+
+    return { dateText, timeText };
+};
+
 
 function AdminAppointment() {
     // Current Doctor ID State (Allows scrolling/changing IDs)
@@ -308,17 +335,20 @@ function AdminAppointment() {
                             <li key={appt.appointment_id} className="appointment-item doctor-view">
                                 <div className="appt-info">
                                     {/* Display time using the ISO strings returned by the backend */}
-                                    <strong>
-                                        {appt.startTime ? new Date(appt.startTime).toLocaleTimeString([], {
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                        }) : 'N/A'}
-                                        -
-                                        {appt.endTime ? new Date(appt.endTime).toLocaleTimeString([], {
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                        }) : 'N/A'}
-                                    </strong>
+                                    {(() => {
+                                        const { dateText, timeText } = formatAppointmentDateTime(
+                                            appt.startTime,
+                                            appt.endTime
+                                        );
+
+                                        return (
+                                            <>
+                                                <strong>{dateText}</strong>
+                                                <div>{timeText}</div>
+                                            </>
+                                        );
+                                    })()}
+
                                     <p>Patient: **{appt.patientName || `ID: ${appt.patient_id}`}**</p>
                                     <p>Purpose: {appt.purpose}</p>
                                     <p>Notes: {appt.notes}</p>

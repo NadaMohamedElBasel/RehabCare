@@ -16,11 +16,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from datetime import datetime, timedelta
-from datetime import datetime, timedelta, date
-# or
 import datetime
-from datetime import date
+from datetime import datetime, timedelta, date
+
 import os
 from collections import deque
 import io
@@ -77,7 +75,7 @@ CORS(app)
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "", # change to yours
+    "password": "Admin@123", # change to yours
     "host": "localhost",
     "port": "5432"
 }
@@ -88,6 +86,44 @@ def getDbConnection():
         return conn
     except Exception as e:
         raise Exception(f"Database connection failed: {str(e)}")
+
+# ---------------- Billing Sync Logic (Appointment -> Billing) ----------------
+APPT_TO_BILL_STATUS = {
+    "scheduled": "pending",
+    "completed": "paid",
+    "cancelled": "cancelled",
+}
+
+def sync_billing_with_appointment(cursor, appointment_id: int, new_appt_status: str, payment_method=None):
+    """
+    Keeps billing.status consistent with appointments.status for the bill linked by appointment_id.
+    scheduled  -> pending
+    completed  -> paid
+    cancelled  -> cancelled
+    """
+    s = (new_appt_status or "").lower().strip()
+    new_bill_status = APPT_TO_BILL_STATUS.get(s, "pending")
+
+    fields = ["status = %s"]
+    values = [new_bill_status]
+
+    # Optional payment method update (useful when marking paid)
+    if payment_method is not None:
+        fields.append("payment_method = %s")
+        values.append(payment_method)
+
+    values.append(appointment_id)
+
+    cursor.execute(
+        f"""
+        UPDATE billing
+        SET {', '.join(fields)}
+        WHERE appointment_id = %s
+        RETURNING billing_id, status, appointment_id, payment_method
+        """,
+        tuple(values)
+    )
+    return cursor.fetchone()  # can be None if no linked bill exists
 
 # Patient Registration
 @app.route('/api/register', methods=['POST'])
@@ -299,90 +335,125 @@ def manageAppointments(patientId=None):
         conn = getDbConnection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
+        # ============================
+        # POST: Create appointment + auto-create billing
+        # ============================
         if request.method == 'POST':
-            data = request.get_json()
+            data = request.get_json() or {}
+
             patientId_post = data.get('patientId')
             appointmentDate = data.get('appointmentDate')
             appointmentTime = data.get('appointmentTime')
-            purpose = data.get('purpose')
+            purpose = data.get('purpose')  # used as ICD-10 code
             doctor_id = data.get('doctor_id') or data.get('doctorId')
             notes = data.get('notes')
 
             if not all([patientId_post, appointmentDate, appointmentTime, purpose, doctor_id]):
                 return jsonify({"error": "Missing required fields for appointment"}), 400
 
-            doctor_id = doctor_id if doctor_id and str(doctor_id).strip() else None
-            appointmentTime = appointmentTime if appointmentTime and str(appointmentTime).strip() else None
-            notes = notes if notes and str(notes).strip() else None
+            # normalize blanks to None
+            doctor_id = doctor_id if str(doctor_id).strip() else None
+            appointmentTime = appointmentTime if str(appointmentTime).strip() else None
+            notes = notes if (notes is not None and str(notes).strip()) else None
 
+            # 1) conflict check (doctor already booked)
             cursor.execute(
                 """
-                SELECT appointment_id FROM appointments 
-                WHERE doctor_id = %s 
-                  AND appointment_date = %s 
+                SELECT appointment_id
+                FROM appointments
+                WHERE doctor_id = %s
+                  AND appointment_date = %s
                   AND appointment_time = %s
                   AND status != 'cancelled'
                 """,
                 (doctor_id, appointmentDate, appointmentTime)
             )
             existing_appt = cursor.fetchone()
-
             if existing_appt:
                 return jsonify({
                     "error": "Conflict: This doctor is already booked at this exact time."
-                }), 409  # 409 Conflict status code
+                }), 409
 
+            # 2) create appointment
             cursor.execute(
                 """
-                INSERT INTO appointments (patient_id, appointment_date, appointment_time, purpose, doctor_id, notes, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'scheduled') RETURNING appointment_id, appointment_date, appointment_time, purpose, doctor_id, notes, status
+                INSERT INTO appointments
+                    (patient_id, appointment_date, appointment_time, purpose, doctor_id, notes, status)
+                VALUES
+                    (%s, %s, %s, %s, %s, %s, 'scheduled')
+                RETURNING
+                    appointment_id, patient_id, appointment_date,
+                    TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time,
+                    purpose, doctor_id, notes, status
                 """,
                 (patientId_post, appointmentDate, appointmentTime, purpose, doctor_id, notes)
             )
             appointment = cursor.fetchone()
-            appointment_id = appointment['appointment_id']
-            conn.commit()
-            if appointment and appointment.get('appointment_time'):
-                appointment['appointment_time'] = str(appointment['appointment_time'])
+            if not appointment:
+                conn.rollback()
+                return jsonify({"error": "Failed to create appointment"}), 500
 
+            appointment_id = appointment["appointment_id"]
+
+            # 3) create billing linked to appointment (same transaction)
             BILLING_AMOUNT = 10.00
-            due_date = (datetime.datetime.now() + datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+
+            # robust due date calc
+            try:
+                due_date_obj = datetime.datetime.now() + datetime.timedelta(days=30)
+            except Exception:
+                # fallback if datetime module import conflicts
+                from datetime import datetime as _dt, timedelta as _td
+                due_date_obj = _dt.now() + _td(days=30)
+
+            due_date = due_date_obj.strftime('%Y-%m-%d')
+
             cursor.execute(
                 """
-                INSERT INTO billing (
-                    patient_id, amount, due_date, icd10_code, status, appointment_id
-                ) VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING billing_id
+                INSERT INTO billing
+                    (patient_id, amount, due_date, icd10_code, status, appointment_id)
+                VALUES
+                    (%s, %s, %s, %s, %s, %s)
+                RETURNING
+                    billing_id, patient_id, amount,
+                    TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date,
+                    icd10_code, status, appointment_id
                 """,
                 (
                     patientId_post,
                     BILLING_AMOUNT,
                     due_date,
-                    purpose,  # The ICD-10 code from the appointment purpose
-                    'pending',  # Default status for auto-generated bill
-                    appointment_id  # Link the bill to the appointment
+                    purpose,       # ICD-10 code
+                    'pending',     # default for newly scheduled appointment
+                    appointment_id
                 )
             )
             bill = cursor.fetchone()
-            billing_id = bill['billing_id']
-            # ---------------------------------------------------------------------
+            if not bill:
+                conn.rollback()
+                return jsonify({"error": "Failed to create billing record"}), 500
 
+            # ✅ commit once at the end
             conn.commit()
+
+            # ensure JSON safe
+            bill["amount"] = str(bill["amount"])
 
             return jsonify({
                 "message": "Appointment scheduled and bill created successfully",
-                "appointment_id": appointment_id,
-                "billing_id": billing_id
+                "appointment": appointment,
+                "billing": bill
             }), 201
-            return jsonify(appointment), 201
 
+        # ============================
+        # GET: your existing logic (keep as-is)
+        # ============================
         elif request.method == 'GET':
             doctor_id_str = request.args.get('doctor_id')
 
             # --- STAFF APPOINTMENT FETCH (GET /api/appointments?doctor_id=X) ---
             if doctor_id_str:
                 try:
-                    # CRITICAL: Cast URL parameter to int for query execution
                     doctor_id = int(doctor_id_str)
                 except ValueError:
                     return jsonify({"error": "Invalid doctor ID format."}), 400
@@ -400,51 +471,41 @@ def manageAppointments(patientId=None):
                 cursor.execute(query, (doctor_id,))
                 appointments = cursor.fetchall()
 
-                # Format to ISO strings for Staff Manager calendar
                 formatted_appts = []
                 for appt in appointments:
                     appt_date = appt['appointment_date']
-
-                    # 1. Robust Time Parsing
                     time_str = appt.get('appointment_time') or '00:00:00'
                     try:
                         appointment_time_obj = datetime.datetime.strptime(time_str, '%H:%M:%S').time()
-                    except ValueError:
+                    except Exception:
                         appointment_time_obj = datetime.datetime.strptime('00:00:00', '%H:%M:%S').time()
 
-                    # 2. Combine Date and Time
                     if not appt_date:
-                        logging.warning(f"Appointment {appt['appointment_id']} has a NULL date. Skipping.")
-                        continue  # Skip appointments with no date
+                        continue
 
-                    # start_dt = datetime.combine(appt_date, appointment_time_obj)
-                    # end_dt = start_dt + timedelta(minutes=60)  # Fixed 60-minute slot
-                    start_dt = datetime.datetime.combine(appt_date, appointment_time_obj)   # ← FIXED: add .datetime
+                    start_dt = datetime.datetime.combine(appt_date, appointment_time_obj)
                     end_dt = start_dt + datetime.timedelta(minutes=60)
 
-                    # 3. Handle Potential NULL Names for patientName
                     first_name = appt.get('first_name') or ''
                     last_name = appt.get('last_name') or ''
-                    patient_name = f"{first_name} {last_name}".strip()
-                    if not patient_name:
-                        patient_name = f"ID: {appt['patient_id']}"
+                    patient_name = f"{first_name} {last_name}".strip() or f"ID: {appt['patient_id']}"
 
                     formatted_appts.append({
                         'appointment_id': appt['appointment_id'],
                         'patient_id': appt['patient_id'],
                         'patientName': patient_name,
-                        'startTime': start_dt.isoformat(),  # ISO string
-                        'endTime': end_dt.isoformat(),  # ISO string
+                        'startTime': start_dt.isoformat(),
+                        'endTime': end_dt.isoformat(),
                         'purpose': appt['purpose'],
                         'notes': appt['notes'],
                         'doctor_id': appt['doctor_id'],
                         'status': appt['status'],
                     })
+
                 return jsonify(formatted_appts), 200
 
-            # --- PATIENT APPOINTMENT FETCH (Original Logic) ---
+            # --- PATIENT APPOINTMENT FETCH ---
             elif patientId is not None:
-                # Mark scheduled appointments that are now in the past as completed
                 cursor.execute("""
                     UPDATE appointments
                     SET status = 'completed'
@@ -452,8 +513,27 @@ def manageAppointments(patientId=None):
                       AND (appointment_date + COALESCE(appointment_time, '23:59:59'::time)) < NOW()
                 """)
                 conn.commit()
+
+                # OPTIONAL: keep billing synced for auto-completed
+                cursor.execute("""
+                    UPDATE billing b
+                    SET status = 'paid'
+                    FROM appointments a
+                    WHERE b.appointment_id = a.appointment_id
+                      AND a.status = 'completed'
+                      AND (b.status IS NULL OR b.status <> 'paid')
+                """)
+                conn.commit()
+
                 cursor.execute(
-                    "SELECT appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, status, doctor_id, notes FROM appointments WHERE patient_id = %s ORDER BY appointment_date DESC",
+                    """
+                    SELECT appointment_id, appointment_date,
+                           TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time,
+                           purpose, status, doctor_id, notes
+                    FROM appointments
+                    WHERE patient_id = %s
+                    ORDER BY appointment_date DESC
+                    """,
                     (patientId,)
                 )
                 appointments = cursor.fetchall()
@@ -463,12 +543,16 @@ def manageAppointments(patientId=None):
                 return jsonify({"error": "Missing patientId or doctor_id parameter"}), 400
 
     except Exception as e:
-        # Logging the full traceback is crucial here to find the exact crash point
         logging.exception("Appointment management failed during GET or POST")
+        if conn:
+            conn.rollback()
         return jsonify({"error": f"Appointment management failed: {str(e)}"}), 500
     finally:
-        if cursor: cursor.close()
-        if conn: conn.close()
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 
 
 # app.py (Replace existing updateAppointment function)
@@ -1631,7 +1715,7 @@ def adminCreateDoctor():
     dob = data.get("dateOfBirth")
     if dob:
         try:
-            dob = datetime.strptime(dob, "%Y-%m-%d").date()
+            dob = datetime.datetime.strptime(dob, "%Y-%m-%d").date()
         except ValueError:
             return jsonify({"error": "Invalid date format"}), 400
     else:
@@ -1880,7 +1964,7 @@ def analyticsOverview():
         # Financial metrics
         cursor.execute("""
             SELECT 
-                SUM(amount) AS total_revenue,
+                SUM(amount) FILTER (WHERE status = 'paid') AS total_revenue,
                 COUNT(*) FILTER (WHERE status = 'paid') AS paid_bills,
                 COUNT(*) FILTER (WHERE status = 'pending') AS pending_bills
             FROM billing
