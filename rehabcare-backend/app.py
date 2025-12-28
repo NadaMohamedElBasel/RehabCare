@@ -94,7 +94,7 @@ if "uploaded_file" not in app.view_functions:
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "1234", # change to yours
+    "password": "Admin@123", # change to yours
     "host": "localhost",
     "port": "5432"
 }
