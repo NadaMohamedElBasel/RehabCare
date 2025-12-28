@@ -94,7 +94,7 @@ if "uploaded_file" not in app.view_functions:
 DB_CONFIG = {
     "dbname": "rehabcare_db",
     "user": "postgres",
-    "password": "Admin@123", # change to yours
+    "password": "abcde", # change to yours
     "host": "localhost",
     "port": "5432"
 }
@@ -741,22 +741,25 @@ def cancelAppointment(appointmentId):
     try:
         conn = getDbConnection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
+
+        # 1. Update Appointment Status
         cursor.execute("""
             UPDATE appointments
             SET status = 'cancelled'
             WHERE appointment_id = %s
             RETURNING appointment_id, status
         """, (appointmentId,))
-        
+
         result = cursor.fetchone()
-        conn.commit()
-        
+
         if not result:
             return jsonify({"error": "Appointment not found"}), 404
-        
-        return jsonify({"message": "Appointment cancelled successfully", "appointment_id": result['appointment_id']}), 200
-    
+
+        # 2. Add this line to sync the billing record
+        sync_billing_with_appointment(cursor, appointmentId, 'cancelled')
+
+        conn.commit()
+        return jsonify({"message": "Appointment and bill cancelled successfully"}), 200
     except Exception as e:
         logging.exception("Failed to cancel appointment")
         return jsonify({"error": str(e)}), 500
