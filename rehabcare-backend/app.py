@@ -113,6 +113,37 @@ APPT_TO_BILL_STATUS = {
     "cancelled": "cancelled",
 }
 
+ICD10_FEE_SCHEDULE = {
+    # --- MUSCULOSKELETAL & ORTHOPEDIC ($100 - $130) ---
+    'M54.5': 100.00,  # Low back pain
+    'M54.2': 100.00,  # Neck pain
+    'M54.41': 115.00,  # Lumbago with sciatica
+    'M25.511': 110.00,  # Shoulder pain
+    'M25.561': 110.00,  # Knee pain
+    'M75.10': 125.00,  # Rotator cuff
+    'M76.60': 115.00,  # Achilles tendinitis
+    'S93.409A': 130.00,  # Ankle sprain (initial encounter)
+
+    # --- NEUROLOGICAL ($160 - $200) ---
+    'I69.351': 200.00,  # Stroke rehab
+    'G35': 180.00,  # Multiple sclerosis
+    'G20': 180.00,  # Parkinson’s
+    'I69.32': 165.00,  # Aphasia
+    'R47.1': 160.00,  # Dysarthria
+    'R13.10': 175.00,  # Dysphagia
+
+    # --- GENERAL MOBILITY & AFTERCARE ($120 - $150) ---
+    'M62.81': 120.00,  # Muscle weakness
+    'R26.2': 125.00,  # Difficulty walking
+    'R26.81': 125.00,  # Unsteadiness
+    'Z47.1': 150.00,  # Post-joint replacement
+    'I25.10': 140.00,  # Cardiac Rehab
+    'J44.9': 140.00,  # COPD / Pulmonary Rehab
+
+    'DEFAULT': 110.00  # Fallback for any other purpose/notes
+}
+
+
 def sync_billing_with_appointment(cursor, appointment_id: int, new_appt_status: str, payment_method=None):
     """
     Keeps billing.status consistent with appointments.status for the bill linked by appointment_id.
@@ -415,7 +446,7 @@ def manageAppointments(patientId=None):
             appointment_id = appointment["appointment_id"]
 
             # 3) create billing linked to appointment (same transaction)
-            BILLING_AMOUNT = 10.00
+            BILLING_AMOUNT = ICD10_FEE_SCHEDULE.get(purpose, ICD10_FEE_SCHEDULE['DEFAULT'])
 
             # robust due date calc
             try:
