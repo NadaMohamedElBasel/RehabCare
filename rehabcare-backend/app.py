@@ -401,6 +401,17 @@ def manageAppointments(patientId=None):
             if not all([patientId_post, appointmentDate, appointmentTime, purpose, doctor_id]):
                 return jsonify({"error": "Missing required fields for appointment"}), 400
 
+            try:
+                # Parse the incoming appointment date string
+                requested_date = datetime.datetime.strptime(appointmentDate, '%Y-%m-%d').date()
+                # Get today's date
+                today = datetime.date.today()
+
+                if requested_date < today:
+                    return jsonify({"error": "Cannot schedule an appointment in the past."}), 400
+            except ValueError:
+                return jsonify({"error": "Invalid date format. Please use YYYY-MM-DD."}), 400
+
             # normalize blanks to None
             doctor_id = doctor_id if str(doctor_id).strip() else None
             appointmentTime = appointmentTime if str(appointmentTime).strip() else None
