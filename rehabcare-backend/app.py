@@ -16,9 +16,13 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from datetime import datetime, timedelta
-from datetime import date
+import datetime
+from datetime import datetime, timedelta, date
+
 import os
+import json
+import base64
+import re
 from collections import deque
 import io
 from pathlib import Path
@@ -52,10 +56,39 @@ except Exception:
     psutil = None
 from flask import g
 import logging
+import datetime  # Ensure this is imported if not already
+
+def serialize_appointment(row):
+    """
+    Convert datetime.time and other non-JSON types to strings.
+    """
+    if not row:
+        return None
+    serialized = dict(row)  # Make a copy
+    if 'appointment_time' in serialized and serialized['appointment_time']:
+        serialized['appointment_time'] = serialized['appointment_time'].strftime('%H:%M:%S')
+    # If you have other time/date columns, add them here
+    return serialized
 logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 CORS(app)
+
+# ---------------- Uploads (always enabled) ----------------
+# Some parts of this app (e.g., Dicom Record snapshots) require serving files from /uploads
+# even when TensorFlow/Keras is unavailable.
+UPLOADS_ROOT = Path(__file__).parent / "uploads"
+UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
+app.config["UPLOAD_FOLDER"] = str(UPLOADS_ROOT)
+
+
+def _serve_uploaded_file(filename):
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+
+
+# Register once (avoid duplicate route if other blocks also try to add it)
+if "uploaded_file" not in app.view_functions:
+    app.add_url_rule("/uploads/<path:filename>", endpoint="uploaded_file", view_func=_serve_uploaded_file)
 
 # Database connection
 DB_CONFIG = {
@@ -72,6 +105,44 @@ def getDbConnection():
         return conn
     except Exception as e:
         raise Exception(f"Database connection failed: {str(e)}")
+
+# ---------------- Billing Sync Logic (Appointment -> Billing) ----------------
+APPT_TO_BILL_STATUS = {
+    "scheduled": "pending",
+    "completed": "paid",
+    "cancelled": "cancelled",
+}
+
+def sync_billing_with_appointment(cursor, appointment_id: int, new_appt_status: str, payment_method=None):
+    """
+    Keeps billing.status consistent with appointments.status for the bill linked by appointment_id.
+    scheduled  -> pending
+    completed  -> paid
+    cancelled  -> cancelled
+    """
+    s = (new_appt_status or "").lower().strip()
+    new_bill_status = APPT_TO_BILL_STATUS.get(s, "pending")
+
+    fields = ["status = %s"]
+    values = [new_bill_status]
+
+    # Optional payment method update (useful when marking paid)
+    if payment_method is not None:
+        fields.append("payment_method = %s")
+        values.append(payment_method)
+
+    values.append(appointment_id)
+
+    cursor.execute(
+        f"""
+        UPDATE billing
+        SET {', '.join(fields)}
+        WHERE appointment_id = %s
+        RETURNING billing_id, status, appointment_id, payment_method
+        """,
+        tuple(values)
+    )
+    return cursor.fetchone()  # can be None if no linked bill exists
 
 # Patient Registration
 @app.route('/api/register', methods=['POST'])
@@ -283,90 +354,125 @@ def manageAppointments(patientId=None):
         conn = getDbConnection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
+        # ============================
+        # POST: Create appointment + auto-create billing
+        # ============================
         if request.method == 'POST':
-            data = request.get_json()
+            data = request.get_json() or {}
+
             patientId_post = data.get('patientId')
             appointmentDate = data.get('appointmentDate')
             appointmentTime = data.get('appointmentTime')
-            purpose = data.get('purpose')
+            purpose = data.get('purpose')  # used as ICD-10 code
             doctor_id = data.get('doctor_id') or data.get('doctorId')
             notes = data.get('notes')
 
             if not all([patientId_post, appointmentDate, appointmentTime, purpose, doctor_id]):
                 return jsonify({"error": "Missing required fields for appointment"}), 400
 
-            doctor_id = doctor_id if doctor_id and str(doctor_id).strip() else None
-            appointmentTime = appointmentTime if appointmentTime and str(appointmentTime).strip() else None
-            notes = notes if notes and str(notes).strip() else None
+            # normalize blanks to None
+            doctor_id = doctor_id if str(doctor_id).strip() else None
+            appointmentTime = appointmentTime if str(appointmentTime).strip() else None
+            notes = notes if (notes is not None and str(notes).strip()) else None
 
+            # 1) conflict check (doctor already booked)
             cursor.execute(
                 """
-                SELECT appointment_id FROM appointments 
-                WHERE doctor_id = %s 
-                  AND appointment_date = %s 
+                SELECT appointment_id
+                FROM appointments
+                WHERE doctor_id = %s
+                  AND appointment_date = %s
                   AND appointment_time = %s
                   AND status != 'cancelled'
                 """,
                 (doctor_id, appointmentDate, appointmentTime)
             )
             existing_appt = cursor.fetchone()
-
             if existing_appt:
                 return jsonify({
                     "error": "Conflict: This doctor is already booked at this exact time."
-                }), 409  # 409 Conflict status code
+                }), 409
 
+            # 2) create appointment
             cursor.execute(
                 """
-                INSERT INTO appointments (patient_id, appointment_date, appointment_time, purpose, doctor_id, notes, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'scheduled') RETURNING appointment_id, appointment_date, appointment_time, purpose, doctor_id, notes, status
+                INSERT INTO appointments
+                    (patient_id, appointment_date, appointment_time, purpose, doctor_id, notes, status)
+                VALUES
+                    (%s, %s, %s, %s, %s, %s, 'scheduled')
+                RETURNING
+                    appointment_id, patient_id, appointment_date,
+                    TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time,
+                    purpose, doctor_id, notes, status
                 """,
                 (patientId_post, appointmentDate, appointmentTime, purpose, doctor_id, notes)
             )
             appointment = cursor.fetchone()
-            appointment_id = appointment['appointment_id']
-            conn.commit()
-            if appointment and appointment.get('appointment_time'):
-                appointment['appointment_time'] = str(appointment['appointment_time'])
+            if not appointment:
+                conn.rollback()
+                return jsonify({"error": "Failed to create appointment"}), 500
 
+            appointment_id = appointment["appointment_id"]
+
+            # 3) create billing linked to appointment (same transaction)
             BILLING_AMOUNT = 10.00
-            due_date = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+
+            # robust due date calc
+            try:
+                due_date_obj = datetime.datetime.now() + datetime.timedelta(days=30)
+            except Exception:
+                # fallback if datetime module import conflicts
+                from datetime import datetime as _dt, timedelta as _td
+                due_date_obj = _dt.now() + _td(days=30)
+
+            due_date = due_date_obj.strftime('%Y-%m-%d')
+
             cursor.execute(
                 """
-                INSERT INTO billing (
-                    patient_id, amount, due_date, icd10_code, status, appointment_id
-                ) VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING billing_id
+                INSERT INTO billing
+                    (patient_id, amount, due_date, icd10_code, status, appointment_id)
+                VALUES
+                    (%s, %s, %s, %s, %s, %s)
+                RETURNING
+                    billing_id, patient_id, amount,
+                    TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date,
+                    icd10_code, status, appointment_id
                 """,
                 (
                     patientId_post,
                     BILLING_AMOUNT,
                     due_date,
-                    purpose,  # The ICD-10 code from the appointment purpose
-                    'pending',  # Default status for auto-generated bill
-                    appointment_id  # Link the bill to the appointment
+                    purpose,       # ICD-10 code
+                    'pending',     # default for newly scheduled appointment
+                    appointment_id
                 )
             )
             bill = cursor.fetchone()
-            billing_id = bill['billing_id']
-            # ---------------------------------------------------------------------
+            if not bill:
+                conn.rollback()
+                return jsonify({"error": "Failed to create billing record"}), 500
 
+            # ✅ commit once at the end
             conn.commit()
+
+            # ensure JSON safe
+            bill["amount"] = str(bill["amount"])
 
             return jsonify({
                 "message": "Appointment scheduled and bill created successfully",
-                "appointment_id": appointment_id,
-                "billing_id": billing_id
+                "appointment": appointment,
+                "billing": bill
             }), 201
-            return jsonify(appointment), 201
 
+        # ============================
+        # GET: your existing logic (keep as-is)
+        # ============================
         elif request.method == 'GET':
             doctor_id_str = request.args.get('doctor_id')
 
             # --- STAFF APPOINTMENT FETCH (GET /api/appointments?doctor_id=X) ---
             if doctor_id_str:
                 try:
-                    # CRITICAL: Cast URL parameter to int for query execution
                     doctor_id = int(doctor_id_str)
                 except ValueError:
                     return jsonify({"error": "Invalid doctor ID format."}), 400
@@ -384,49 +490,41 @@ def manageAppointments(patientId=None):
                 cursor.execute(query, (doctor_id,))
                 appointments = cursor.fetchall()
 
-                # Format to ISO strings for Staff Manager calendar
                 formatted_appts = []
                 for appt in appointments:
                     appt_date = appt['appointment_date']
-
-                    # 1. Robust Time Parsing
                     time_str = appt.get('appointment_time') or '00:00:00'
                     try:
-                        appointment_time_obj = datetime.strptime(time_str, '%H:%M:%S').time()
-                    except ValueError:
-                        appointment_time_obj = datetime.strptime('00:00:00', '%H:%M:%S').time()
+                        appointment_time_obj = datetime.datetime.strptime(time_str, '%H:%M:%S').time()
+                    except Exception:
+                        appointment_time_obj = datetime.datetime.strptime('00:00:00', '%H:%M:%S').time()
 
-                    # 2. Combine Date and Time
                     if not appt_date:
-                        logging.warning(f"Appointment {appt['appointment_id']} has a NULL date. Skipping.")
-                        continue  # Skip appointments with no date
+                        continue
 
-                    start_dt = datetime.combine(appt_date, appointment_time_obj)
-                    end_dt = start_dt + timedelta(minutes=60)  # Fixed 60-minute slot
+                    start_dt = datetime.datetime.combine(appt_date, appointment_time_obj)
+                    end_dt = start_dt + datetime.timedelta(minutes=60)
 
-                    # 3. Handle Potential NULL Names for patientName
                     first_name = appt.get('first_name') or ''
                     last_name = appt.get('last_name') or ''
-                    patient_name = f"{first_name} {last_name}".strip()
-                    if not patient_name:
-                        patient_name = f"ID: {appt['patient_id']}"
+                    patient_name = f"{first_name} {last_name}".strip() or f"ID: {appt['patient_id']}"
 
                     formatted_appts.append({
                         'appointment_id': appt['appointment_id'],
                         'patient_id': appt['patient_id'],
                         'patientName': patient_name,
-                        'startTime': start_dt.isoformat(),  # ISO string
-                        'endTime': end_dt.isoformat(),  # ISO string
+                        'startTime': start_dt.isoformat(),
+                        'endTime': end_dt.isoformat(),
                         'purpose': appt['purpose'],
                         'notes': appt['notes'],
                         'doctor_id': appt['doctor_id'],
                         'status': appt['status'],
                     })
+
                 return jsonify(formatted_appts), 200
 
-            # --- PATIENT APPOINTMENT FETCH (Original Logic) ---
+            # --- PATIENT APPOINTMENT FETCH ---
             elif patientId is not None:
-                # Mark scheduled appointments that are now in the past as completed
                 cursor.execute("""
                     UPDATE appointments
                     SET status = 'completed'
@@ -434,8 +532,27 @@ def manageAppointments(patientId=None):
                       AND (appointment_date + COALESCE(appointment_time, '23:59:59'::time)) < NOW()
                 """)
                 conn.commit()
+
+                # OPTIONAL: keep billing synced for auto-completed
+                cursor.execute("""
+                    UPDATE billing b
+                    SET status = 'paid'
+                    FROM appointments a
+                    WHERE b.appointment_id = a.appointment_id
+                      AND a.status = 'completed'
+                      AND (b.status IS NULL OR b.status <> 'paid')
+                """)
+                conn.commit()
+
                 cursor.execute(
-                    "SELECT appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, status, doctor_id, notes FROM appointments WHERE patient_id = %s ORDER BY appointment_date DESC",
+                    """
+                    SELECT appointment_id, appointment_date,
+                           TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time,
+                           purpose, status, doctor_id, notes
+                    FROM appointments
+                    WHERE patient_id = %s
+                    ORDER BY appointment_date DESC
+                    """,
                     (patientId,)
                 )
                 appointments = cursor.fetchall()
@@ -445,15 +562,106 @@ def manageAppointments(patientId=None):
                 return jsonify({"error": "Missing patientId or doctor_id parameter"}), 400
 
     except Exception as e:
-        # Logging the full traceback is crucial here to find the exact crash point
         logging.exception("Appointment management failed during GET or POST")
+        if conn:
+            conn.rollback()
         return jsonify({"error": f"Appointment management failed: {str(e)}"}), 500
     finally:
-        if cursor: cursor.close()
-        if conn: conn.close()
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 
 
 # app.py (Replace existing updateAppointment function)
+
+# @app.route('/api/appointments/<int:appointmentId>', methods=['PUT', 'PATCH'])
+# @app.route('/api/appointments/<int:appointmentId>/status', methods=['PATCH'])
+# def updateAppointment(appointmentId):
+#     conn = None
+#     cursor = None
+#     try:
+#         data = request.get_json() or {}
+#         conn = getDbConnection()
+#         cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+#         # --- Logic for Simple Status Update (PATCH) ---
+#         if request.method == 'PATCH':
+#             new_status = data.get('status')
+
+#             if not new_status or new_status.lower() not in ['scheduled', 'completed', 'cancelled']:
+#                 return jsonify({'error': 'Invalid or missing status provided for PATCH'}), 400
+
+#             new_status_lower = new_status.lower()
+
+#             cursor.execute(
+#                 "UPDATE appointments SET status = %s WHERE appointment_id = %s RETURNING appointment_id, status",
+#                 (new_status_lower, appointmentId)
+#             )
+
+#             result = cursor.fetchone()
+#             if not result:
+#                 return jsonify({'error': f'Appointment ID {appointmentId} not found.'}), 404
+
+#             conn.commit()
+#             return jsonify(
+#                 {'message': f'Appointment {appointmentId} status updated to {new_status}', 'appointment': result}), 200
+
+
+#         # --- Logic for Full Update (PUT) ---
+#         elif request.method == 'PUT':
+#             appointment_date = data.get('appointmentDate')
+#             appointment_time = data.get('appointmentTime')
+#             purpose = data.get('purpose')
+#             doctor_id = data.get('doctor_id') or data.get('doctorId')
+#             notes = data.get('notes')
+
+#             # Building dynamic update query based on fields provided (omitted for brevity,
+#             # but ensure your logic here handles updating only provided fields or validating all required fields for a PUT)
+
+#             fields = []
+#             values = []
+
+#             if appointment_date is not None:
+#                 fields.append('appointment_date = %s')
+#                 values.append(appointment_date)
+#             # ... (rest of your PUT update logic here for time, purpose, doctor_id, notes) ...
+#             if not fields:
+#                 return jsonify({"error": "No fields to update"}), 400
+
+#             values.append(appointmentId)
+#             sql = f"""
+#                 UPDATE appointments
+#                 SET {', '.join(fields)}
+#                 WHERE appointment_id = %s
+#                 RETURNING appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, doctor_id, notes, status
+#             """
+
+#             # EXECUTE THE QUERY HERE... (using the built sql and values tuple)
+#             # Example simplified update:
+#             cursor.execute(
+#                 "UPDATE appointments SET appointment_date = %s, appointment_time = %s, purpose = %s, doctor_id = %s, notes = %s WHERE appointment_id = %s RETURNING *",
+#                 (appointment_date, appointment_time, purpose, doctor_id, notes, appointmentId)
+#             )
+
+#             result = cursor.fetchone()
+#             conn.commit()
+
+#             if not result:
+#                 return jsonify({"error": "Appointment not found"}), 404
+
+#             return jsonify(result), 200
+
+#     except Exception as e:
+#         logging.exception("Failed to update appointment")
+#         conn.rollback()
+#         return jsonify({"error": f'Failed to update appointment: {str(e)}'}), 500
+#     finally:
+#         if cursor:
+#             cursor.close()
+#         if conn:
+#             conn.close()
 
 @app.route('/api/appointments/<int:appointmentId>', methods=['PUT', 'PATCH'])
 @app.route('/api/appointments/<int:appointmentId>/status', methods=['PATCH'])
@@ -484,9 +692,11 @@ def updateAppointment(appointmentId):
                 return jsonify({'error': f'Appointment ID {appointmentId} not found.'}), 404
 
             conn.commit()
-            return jsonify(
-                {'message': f'Appointment {appointmentId} status updated to {new_status}', 'appointment': result}), 200
-
+            serialized_result = serialize_appointment(result)  # ← ADD THIS
+            return jsonify({
+                'message': f'Appointment {appointmentId} status updated to {new_status}',
+                'appointment': serialized_result
+            }), 200
 
         # --- Logic for Full Update (PUT) ---
         elif request.method == 'PUT':
@@ -496,29 +706,8 @@ def updateAppointment(appointmentId):
             doctor_id = data.get('doctor_id') or data.get('doctorId')
             notes = data.get('notes')
 
-            # Building dynamic update query based on fields provided (omitted for brevity,
-            # but ensure your logic here handles updating only provided fields or validating all required fields for a PUT)
+            # Your dynamic update logic here...
 
-            fields = []
-            values = []
-
-            if appointment_date is not None:
-                fields.append('appointment_date = %s')
-                values.append(appointment_date)
-            # ... (rest of your PUT update logic here for time, purpose, doctor_id, notes) ...
-            if not fields:
-                return jsonify({"error": "No fields to update"}), 400
-
-            values.append(appointmentId)
-            sql = f"""
-                UPDATE appointments
-                SET {', '.join(fields)}
-                WHERE appointment_id = %s
-                RETURNING appointment_id, appointment_date, TO_CHAR(appointment_time, 'HH24:MI:SS') AS appointment_time, purpose, doctor_id, notes, status
-            """
-
-            # EXECUTE THE QUERY HERE... (using the built sql and values tuple)
-            # Example simplified update:
             cursor.execute(
                 "UPDATE appointments SET appointment_date = %s, appointment_time = %s, purpose = %s, doctor_id = %s, notes = %s WHERE appointment_id = %s RETURNING *",
                 (appointment_date, appointment_time, purpose, doctor_id, notes, appointmentId)
@@ -530,17 +719,20 @@ def updateAppointment(appointmentId):
             if not result:
                 return jsonify({"error": "Appointment not found"}), 404
 
-            return jsonify(result), 200
+            serialized_result = serialize_appointment(result)  # ← ADD THIS
+            return jsonify(serialized_result), 200
 
     except Exception as e:
         logging.exception("Failed to update appointment")
-        conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": f'Failed to update appointment: {str(e)}'}), 500
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
+
 # Cancel appointment
 @app.route('/api/appointments/<int:appointmentId>/cancel', methods=['PUT'])
 def cancelAppointment(appointmentId):
@@ -1269,6 +1461,142 @@ def createMedicalRecord_Doctor(doctorId, patientId):
         "visit_date": visit_date
     }), 201
 
+
+def _decode_image_data_url(data_url: str):
+    """Decode a data URL like 'data:image/jpeg;base64,...' -> (bytes, ext).
+
+    Supports image/jpeg and image/png. Returns (None, None) on failure.
+    """
+    if not data_url or not isinstance(data_url, str):
+        return None, None
+
+    m = re.match(r"^data:(image/(png|jpeg|jpg));base64,(.+)$", data_url, flags=re.IGNORECASE | re.DOTALL)
+    if not m:
+        return None, None
+
+    mime = (m.group(1) or "").lower()
+    b64 = m.group(3)
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except Exception:
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            return None, None
+
+    ext = "png" if "png" in mime else "jpg"
+    return raw, ext
+
+
+@app.route('/api/doctor/<int:doctorId>/patients/<int:patientId>/medical-records/dicom', methods=['POST'])
+def createDicomRecord_Doctor(doctorId, patientId):
+    """Create a new medical record of type 'Dicom Record' with an uploaded snapshot + doctor notes."""
+    data = request.get_json() or {}
+    record_payload = data.get('recordPayload') or {}
+
+    # accept screenshot either at top-level or within recordPayload
+    screenshot_data_url = data.get('screenshotDataUrl') or record_payload.get('screenshotDataUrl')
+    department = data.get('department') or record_payload.get('department') or 'Radiology'
+
+    #  Authorization + get appointment date
+    conn = getDbConnection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("""
+            SELECT appointment_date
+            FROM appointments
+            WHERE doctor_id = %s AND patient_id = %s
+            ORDER BY appointment_date DESC
+            LIMIT 1
+        """, (doctorId, patientId))
+
+        appointment = cursor.fetchone()
+        if not appointment:
+            return jsonify({"error": "No appointment found for this patient"}), 400
+
+        visit_date = appointment["appointment_date"]
+
+        if not screenshot_data_url:
+            return jsonify({"error": "Missing screenshotDataUrl"}), 400
+
+        raw, ext = _decode_image_data_url(screenshot_data_url)
+        if not raw:
+            return jsonify({"error": "Invalid screenshotDataUrl format"}), 400
+
+        # Ensure uploads root exists even if CDSS is disabled
+        upload_root = Path(app.config.get('UPLOAD_FOLDER') or (Path(__file__).parent / 'uploads'))
+        upload_root.mkdir(parents=True, exist_ok=True)
+        app.config['UPLOAD_FOLDER'] = str(upload_root)
+
+        dicom_dir = upload_root / 'dicom_records'
+        dicom_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"dicom_records/{uuid4().hex}.{ext}"
+        save_path = upload_root / filename
+        with open(save_path, 'wb') as f:
+            f.write(raw)
+
+        image_url = f"/uploads/{filename}"
+
+        # Build structured record data for the patient UI
+        record_data_obj = {
+            "kind": "Dicom Record",
+            "createdAt": record_payload.get('createdAt') or datetime.now().isoformat(),
+            "imageUrl": image_url,
+            "notes": record_payload.get('notes') or record_payload.get('doctorNotes') or [],
+            "annotations": record_payload.get('annotations') or [],
+            "viewMode": record_payload.get('viewMode'),
+            "mprActiveView": record_payload.get('mprActiveView'),
+            "windowLevel": record_payload.get('windowLevel'),
+            "enhancements": record_payload.get('enhancements'),
+            "imageCount": record_payload.get('imageCount'),
+        }
+
+        cursor.execute("""
+            INSERT INTO medical_records
+            (
+              patient_id,
+              record_type,
+              record_data,
+              visit_date,
+              department,
+              created_at,
+              created_by
+            )
+            VALUES (%s,%s,%s,%s,%s,NOW(),%s)
+            RETURNING record_id
+        """, (
+            patientId,
+            'Dicom Record',
+            json.dumps(record_data_obj),
+            visit_date,
+            department,
+            doctorId
+        ))
+
+        record = cursor.fetchone()
+        conn.commit()
+
+        return jsonify({
+            "message": "Dicom Record created successfully",
+            "record_id": record["record_id"],
+            "visit_date": visit_date,
+            "image_url": image_url,
+        }), 201
+    except Exception as e:
+        logging.exception('Failed to create Dicom Record')
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 @app.route('/api/doctor/<int:doctorId>/medical-records/<int:recordId>', methods=['PUT'])
 def updateMedicalRecord(doctorId, recordId):
     data = request.get_json() or {}
@@ -1542,7 +1870,7 @@ def adminCreateDoctor():
     dob = data.get("dateOfBirth")
     if dob:
         try:
-            dob = datetime.strptime(dob, "%Y-%m-%d").date()
+            dob = datetime.datetime.strptime(dob, "%Y-%m-%d").date()
         except ValueError:
             return jsonify({"error": "Invalid date format"}), 400
     else:
@@ -1791,7 +2119,7 @@ def analyticsOverview():
         # Financial metrics
         cursor.execute("""
             SELECT 
-                SUM(amount) AS total_revenue,
+                SUM(amount) FILTER (WHERE status = 'paid') AS total_revenue,
                 COUNT(*) FILTER (WHERE status = 'paid') AS paid_bills,
                 COUNT(*) FILTER (WHERE status = 'pending') AS pending_bills
             FROM billing
@@ -2082,7 +2410,7 @@ MODEL_PATH = Path(__file__).parent / "final_binary.keras"   # put final_binary.k
 IMG_SIZE = 224
 BACKBONE_CANDIDATES = ["EfficientNetB0", "MobileNetV3Large", "EfficientNetV2B0"]
 ALLOWED_EXT = {"png", "jpg", "jpeg"}
-UPLOAD_FOLDER = Path(__file__).parent / "uploads"
+UPLOAD_FOLDER = Path(app.config.get("UPLOAD_FOLDER", str(Path(__file__).parent / "uploads")))
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
 
@@ -2421,9 +2749,7 @@ if keras is not None:
             "image_url": image_url
         }), 200
 
-    @app.route("/uploads/<path:filename>")
-    def uploaded_file(filename):
-        return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+    # /uploads is registered globally above (kept available even without TF/Keras).
 
     # Initialize model on startup
     initialize_model()

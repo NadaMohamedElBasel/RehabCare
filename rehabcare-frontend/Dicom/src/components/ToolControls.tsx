@@ -329,7 +329,7 @@ const ToolControls = ({
         {onSaveToPatientRecord && (
           <div className="space-y-2">
             <div className="text-xs text-gray-600 dark:text-gray-400">
-              Save the annotated image + notes into a patient medical record.
+              Send the annotated image + notes as a Dicom Record to the patient medical records.
             </div>
             <div className="grid grid-cols-1 gap-2">
               <input
@@ -355,9 +355,9 @@ const ToolControls = ({
               type="button"
               onClick={onSaveToPatientRecord}
               className="w-full px-3 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
-              title="Save to patient medical records"
+              title="Send Dicom Record to patient medical records"
             >
-              Save To Patient Record
+              Send Dicom Record
             </button>
           </div>
         )}
