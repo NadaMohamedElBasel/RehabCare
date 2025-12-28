@@ -419,13 +419,19 @@ def manageAppointments(patientId=None):
 
             # robust due date calc
             try:
-                due_date_obj = datetime.datetime.now() + datetime.timedelta(days=30)
+                # Convert the appointmentDate string from the request into a date object
+                # Assuming appointmentDate is in 'YYYY-MM-DD' format
+                appt_date_obj = datetime.datetime.strptime(appointmentDate, '%Y-%m-%d')
+                # Set due date to 7 days after the appointment
+                due_date_obj = appt_date_obj + datetime.timedelta(days=7)
             except Exception:
-                # fallback if datetime module import conflicts
+                # fallback/robustness logic
                 from datetime import datetime as _dt, timedelta as _td
-                due_date_obj = _dt.now() + _td(days=30)
+                appt_date_obj = _dt.strptime(appointmentDate, '%Y-%m-%d')
+                due_date_obj = appt_date_obj + _td(days=7)
 
             due_date = due_date_obj.strftime('%Y-%m-%d')
+            # ------------------------------------
 
             cursor.execute(
                 """
@@ -442,8 +448,8 @@ def manageAppointments(patientId=None):
                     patientId_post,
                     BILLING_AMOUNT,
                     due_date,
-                    purpose,       # ICD-10 code
-                    'pending',     # default for newly scheduled appointment
+                    purpose,  # ICD-10 code
+                    'pending',  # default for newly scheduled appointment
                     appointment_id
                 )
             )
