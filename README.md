@@ -47,7 +47,7 @@ The system enables **secure access** for administrators, clinical staff, and pat
 
 | Layer | Tools / Technologies |
 |-------|----------------------|
-| **Frontend** | React.js |
+| **Frontend** | Node.js |
 | **Backend** | Flask (Python) |
 | **Database** | PostgreSQL |
 | **Libraries / Frameworks** | PyDICOM, SimpleITK, PyTorch |
